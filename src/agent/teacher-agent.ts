@@ -23,7 +23,7 @@ import {
 	attachmentImageParts,
 	attachmentsPromptSection,
 	attachmentTools,
-	type SessionAttachments,
+	type SessionAttachment,
 } from "./tools/attachments.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
@@ -99,6 +99,19 @@ const composedInstructions: Record<AgentKind, string> = {
 	practice: composeInstructions("practice"),
 };
 
+/** The full system prompt of one turn: the composed doctrine, the send_to_user
+ *  delivery rule when the narration guard applies, then the session-attachments
+ *  section. The section goes last so the static prefix stays cacheable. */
+export function systemPromptFor(
+	kind: AgentKind,
+	opts: { promptSwitches?: Record<string, boolean>; attachments?: readonly SessionAttachment[]; narrationGuard?: boolean } = {},
+): string {
+	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
+	const instructions = opts.narrationGuard ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed;
+	const section = attachmentsPromptSection(opts.attachments ?? []);
+	return section ? `${instructions}\n\n---\n\n${section}` : instructions;
+}
+
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
 // every model call's usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
@@ -136,11 +149,12 @@ export interface AgentBuildOptions {
 	 *  <chatId>.jsonl via providerEventObserver — the GLM-truncation /
 	 *  DeepSeek-id incident layer. Absent or env-off → no observer. */
 	chatId?: string;
-	/** The session's context attachments (2026-10-29): the system prompt's
-	 *  manifest section, the scoped pdf_* / epub_* readers (joined to every
-	 *  kind's registry unless an explicit `tools` registry is passed), and
-	 *  inline images for vision models. Absent/empty = none of the three. */
-	attachments?: SessionAttachments;
+	/** The session's ACTIVE context attachments, paths resolved (2026-10-29):
+	 *  the system prompt's manifest section, the scoped pdf_* / epub_*
+	 *  readers (joined to every kind's registry unless an explicit `tools`
+	 *  registry is passed), and inline images for vision models.
+	 *  Absent/empty = none. */
+	attachments?: readonly SessionAttachment[];
 }
 
 /**
@@ -195,15 +209,8 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
-	const composedPrompt = opts.promptSwitches
-		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
-	const instructions = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
-	// Appended AFTER the doctrine so the stable prefix stays cacheable; the
-	// section itself only changes when the learner attaches a file.
-	const attachmentSection = attachmentsPromptSection(opts.attachments);
-	const systemPrompt = attachmentSection ? `${instructions}\n\n---\n\n${attachmentSection}` : instructions;
-	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments))) : [];
+	const systemPrompt = systemPromptFor(kind, { ...opts, narrationGuard });
+	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : [];
 	const showImages = engine.model.input?.includes("image") ?? false;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
@@ -260,7 +267,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// Attached images ride the message they were sent with — vision
 		// models only; for the rest the ids just strip (the manifest names it).
 		convertToLlm: (messages) =>
-			toLlmMessages(messages, showImages ? { attachmentParts: attachmentImageParts(opts.attachments) } : {}),
+			toLlmMessages(messages, showImages ? { attachmentParts: attachmentImageParts(opts.attachments ?? []) } : {}),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;

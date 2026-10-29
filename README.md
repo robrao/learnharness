@@ -35,7 +35,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 The agent can also research questions in the background, create visual explanations, show your own images in the lesson and mark them up with arrows and labels, and build interactive demonstrations.
 
-**Bring your own material.** Attach images, PDFs, or EPUBs to a session with **Add context**. The agent reads books and papers the way a coding agent reads a codebase: structure first, then only the pages or chapters the lesson needs.
+**Bring your own material.** Attach images, PDFs, or EPUBs to a session with **Add context**, or any time from the **Files** chip in the session's top bar, where you can also remove a file and undo the removal. The agent reads books and papers the way a coding agent reads a codebase: structure first, then only the pages or chapters the lesson needs.
 
 ## Knowledge that carries forward
 
