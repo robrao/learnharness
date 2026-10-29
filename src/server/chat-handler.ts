@@ -49,6 +49,8 @@ import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.t
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
+import { attachmentsPromptSection, type SessionAttachments } from "../agent/tools/attachments.ts";
+import { attachmentsDir } from "../store/attachments.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
@@ -63,7 +65,7 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type {CallUsage} from "../core/contracts.ts";
+import type { CallUsage, ChatRecord } from "../core/contracts.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -88,6 +90,17 @@ import type {CallUsage} from "../core/contracts.ts";
  * already in progress when the opt-in is switched off. */
 function connectionBackgroundAllowed(provider: string): boolean {
 	return subscriptionBackgroundAllowed(provider) && (provider !== CLAUDE_CODE_PROVIDER || providerKeyPresent(provider));
+}
+
+/** The session's attachments as the agent layer sees them (dir + records). */
+function sessionAttachments(record: ChatRecord): SessionAttachments | undefined {
+	return record.attachments?.length ? { dir: attachmentsDir(record.id), records: record.attachments } : undefined;
+}
+
+/** The compaction estimate's system-prompt share: doctrine + attachments manifest. */
+function systemPromptTokens(record: ChatRecord): number {
+	const kind = record.kind === "practice" ? "practice" : "teacher";
+	return Math.ceil((composeInstructions(kind).length + attachmentsPromptSection(sessionAttachments(record)).length) / 4);
 }
 
 function settlementErrorText(error: unknown): string {
@@ -294,7 +307,7 @@ export async function handleChatInput(
 				effective.compaction?.thresholdTokens,
 				catalogContextLimits().get(modelIdForCompaction),
 			),
-			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
+			systemPromptTokens: systemPromptTokens(record),
 		},
 		chatId,
 	);
@@ -460,6 +473,7 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
+		attachments: sessionAttachments(record),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -669,7 +683,7 @@ export async function handleChatInput(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
+							systemPromptTokens: systemPromptTokens(freshRecord),
 						};
 					}, chatId);
 			},

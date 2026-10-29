@@ -8,8 +8,11 @@ import { comparisonPath, guardSourcePath, isWithin, realSourcePath as realOrMiss
 /**
  * Shared plumbing for the learner-filesystem tools (ls / find / grep) —
  * sources v1 (2026-09-19): the agent locates and reads the learner's files
- * itself, so paths need no UI affordance (user decision: no attachments —
- * the learner references files in messages; the agent finds them).
+ * itself, so paths need no UI affordance (user decision, 2026-09: the
+ * learner references files in messages; the agent finds them). Since
+ * 2026-10-29 the learner can ALSO attach files from the composer — those
+ * are copied into the session and read by the scoped tools in
+ * attachments.ts; these tools stay the path for everything else.
  *
  * Safety posture (user-locked): READ-ONLY by construction — no shell-out,
  * no user-controlled process args, no mutation APIs anywhere here. The one
@@ -201,6 +204,15 @@ export function sourceSearchRoots(p?: string, policy: ResolvedFileAccessPolicy =
 	if (protectedRoots) notices.push(`Skipped ${protectedRoots} protected allowed folder(s); sensitive-location denials cannot be overridden`);
 	if (!roots.length) throw new Error("Access denied: no accessible allowed folders. Add or repair folders in Settings → Agent → Tools → File access.");
 	return { roots, notices, multiRoot: true };
+}
+
+/** Resolve a tool-supplied path and require it to live INSIDE `dir` —
+ *  the scoped tools' filesystem ends at that wall (null = outside). */
+export function scopedPath(dir: string, filePath: string): string | null {
+	const root = path.resolve(dir) + path.sep;
+	const resolved = path.resolve(dir, filePath);
+	if (!resolved.startsWith(root)) return null;
+	return resolved;
 }
 
 /** pi's formatSize idiom (50KB prints as "50.0KB"). */
