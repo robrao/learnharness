@@ -50,7 +50,7 @@ import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-ser
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { attachmentsPromptSection, type SessionAttachments } from "../agent/tools/attachments.ts";
-import { attachmentsDir } from "../store/attachments.ts";
+import { attachmentsRoot } from "../store/attachments.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
@@ -92,9 +92,9 @@ function connectionBackgroundAllowed(provider: string): boolean {
 	return subscriptionBackgroundAllowed(provider) && (provider !== CLAUDE_CODE_PROVIDER || providerKeyPresent(provider));
 }
 
-/** The session's attachments as the agent layer sees them (dir + records). */
+/** The session's attachments as the agent layer sees them (blob root + records). */
 function sessionAttachments(record: ChatRecord): SessionAttachments | undefined {
-	return record.attachments?.length ? { dir: attachmentsDir(record.id), records: record.attachments } : undefined;
+	return record.attachments?.length ? { dir: attachmentsRoot(), records: record.attachments } : undefined;
 }
 
 /** The compaction estimate's system-prompt share: doctrine + attachments manifest. */

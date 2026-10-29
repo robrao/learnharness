@@ -135,7 +135,7 @@ Extraction is the construction writer, not the only mutation: source/session/nod
 | Data | Files |
 | --- | --- |
 | Conversations, plans, usage, image snapshots | `chats/*.json` |
-| Session attachments (uploaded files) | `attachments/<chatId>/` |
+| Session attachments (uploaded files; blobs by sha256, shared across sessions) | `attachments/` |
 | Worker computation and delivery obligations | `jobs/*.json` |
 | Propositions, chains, checkpoints, coverage | `graph/{nodes,chains,sessions,coverage}.jsonl` |
 | Sources, organization, positions, render preferences | JSON maps under `graph/` |
