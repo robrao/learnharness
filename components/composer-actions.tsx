@@ -20,19 +20,24 @@ export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?:
 
 /** Count and Clear stay together if the setup action wraps onto another line.
  * These are node counts, even when a whole chain supplied the selection. */
-export function NodePickerControl({ count, onOpen, onClear }: {
+export function NodePickerControl({ count, onOpen, onClear, disabled = false }: {
 	count: number;
 	onOpen?: () => void;
 	onClear?: () => void;
+	/** Picks and a ticked teaching source never coexist (owner, 2026-11-03). */
+	disabled?: boolean;
 }) {
+	const disabledTitle = disabled ? "Untick the teaching source to pick nodes" : undefined;
 	return (
 		<div className="flex items-center gap-1.5">
 			<button
 				type="button"
 				data-testid="practice-props-chip"
 				onClick={onOpen}
+				disabled={disabled}
+				title={disabledTitle}
 				className={
-					"flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors " +
+					"flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 " +
 					(count > 0
 						? "border-border bg-card text-foreground hover:bg-accent"
 						: "border-dashed border-border/80 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground")
@@ -46,7 +51,9 @@ export function NodePickerControl({ count, onOpen, onClear }: {
 					type="button"
 					data-testid="practice-props-clear"
 					onClick={onClear}
-					className="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					disabled={disabled}
+					title={disabledTitle}
+					className="disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
 					Clear
 				</button>

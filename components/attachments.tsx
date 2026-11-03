@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
-import { ATTACHMENT_MAX_BYTES, ATTACHMENT_TYPES, attachmentExtension, type AttachmentRecord } from "@/src/core";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_TYPES, TEACHING_SOURCE_KINDS, attachmentExtension, type AttachmentRecord } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -34,6 +34,27 @@ export async function uploadAttachment(chatId: string, file: File, fetchLike: ty
 	const body = (await res.json().catch(() => null)) as { attachment?: AttachmentRecord; error?: string } | null;
 	if (!res.ok || !body?.attachment) throw new Error(`${file.name}: ${body?.error ?? `upload failed (HTTP ${res.status})`}`);
 	return body.attachment;
+}
+
+/** Name an uploaded attachment the session's teaching source
+ *  (learn-from-a-file, owner 2026-11-03) — the start flow's last call;
+ *  the server starts the digest. Throws an Error carrying a
+ *  learner-readable reason. */
+export async function setTeachingSourceRequest(chatId: string, attachmentId: string, goal: string | undefined, fetchLike: typeof fetch): Promise<void> {
+	const res = await fetchLike(`/api/chats/${chatId}/source`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ attachmentId, ...(goal ? { goal } : {}) }),
+	});
+	if (res.ok) return;
+	const body = (await res.json().catch(() => null)) as { error?: string } | null;
+	throw new Error(body?.error ?? `Couldn't set the teaching source (HTTP ${res.status}).`);
+}
+
+/** Can this file be the teaching source? (PDF / .txt / .md — owner, 2026-11-03) */
+export function canBeTeachingSource(name: string): boolean {
+	const type = ATTACHMENT_TYPES[attachmentExtension(name)];
+	return !!type && TEACHING_SOURCE_KINDS.includes(type.kind);
 }
 
 /** Client-side precheck — the server validates again. */
@@ -81,20 +102,39 @@ export interface AttachmentDraft {
 	upload(chatId: string, fetchLike?: typeof fetch): Promise<string[]>;
 	/** A stable fingerprint of the picked set (retry identity). */
 	identity(): string;
+	/** The draft file ticked as the teaching source (its key), or null. */
+	sourceKey: string | null;
+	/** Tick one file as the teaching source (replacing any other), or untick with null. */
+	setSource(key: string | null): void;
+	/** The ticked file's attachment id, once upload() has stored it. */
+	sourceId(): string | undefined;
 }
 
 export function useAttachmentDraft(onUploaded?: (records: AttachmentRecord[]) => void): AttachmentDraft {
 	const [files, setFiles] = useState<DraftFile[]>([]);
 	const [error, setError] = useState<string | null>(null);
-	// The mirror: upload() runs across renders and must see every id it set.
+	const [sourceKey, setSourceKey] = useState<string | null>(null);
+	// The mirrors: upload() runs across renders and must see every id it set.
 	const filesRef = useRef<DraftFile[]>([]);
+	const sourceKeyRef = useRef<string | null>(null);
 	const write = (next: DraftFile[]) => {
 		filesRef.current = next;
 		setFiles(next);
 	};
+	const writeSource = (key: string | null) => {
+		sourceKeyRef.current = key;
+		setSourceKey(key);
+	};
 	return {
 		files,
 		error,
+		sourceKey,
+		setSource(key) {
+			writeSource(key);
+		},
+		sourceId() {
+			return filesRef.current.find((f) => f.key === sourceKeyRef.current)?.id;
+		},
 		add(list) {
 			if (!list) return;
 			const problems: string[] = [];
@@ -109,10 +149,12 @@ export function useAttachmentDraft(onUploaded?: (records: AttachmentRecord[]) =>
 		},
 		remove(key) {
 			write(filesRef.current.filter((f) => f.key !== key));
+			if (sourceKeyRef.current === key) writeSource(null);
 			setError(null);
 		},
 		clear() {
 			write([]);
+			writeSource(null);
 			setError(null);
 		},
 		async upload(chatId, fetchLike = fetch) {
@@ -134,21 +176,25 @@ export function useAttachmentDraft(onUploaded?: (records: AttachmentRecord[]) =>
 			return filesRef.current.map((f) => f.id!);
 		},
 		identity() {
-			return filesRef.current.map((f) => f.key).join("|");
+			return `${filesRef.current.map((f) => f.key).join("|")}#${sourceKeyRef.current ?? ""}`;
 		},
 	};
 }
 
+/** Why the checkbox is greyed out (owner, 2026-11-03). */
+export const TEACHING_SOURCE_PICKS_HINT = "Clear your picks to use a file as the teaching source";
+
 const REMOVE_BUTTON =
 	"flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-function Chip({ name, detached, onRemove, onOpen }: { name: string; detached?: boolean; onRemove?: () => void; onOpen?: () => void }) {
+function Chip({ name, detached, onRemove, onOpen, extra }: { name: string; detached?: boolean; onRemove?: () => void; onOpen?: () => void; extra?: ReactNode }) {
 	const className = "flex max-w-56 items-center gap-1 rounded-full border border-border bg-card py-1 pr-0.5 pl-2.5 font-ui text-xs text-foreground";
 	const content = (
 		<>
 			<PaperclipIcon aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
 			<span className={detached ? "truncate line-through text-muted-foreground" : "truncate"}>{name}</span>
 			{detached && <span className="text-muted-foreground">removed</span>}
+			{extra}
 			{onRemove && (
 				<button type="button" aria-label={`Remove ${name}`} onClick={onRemove} className={REMOVE_BUTTON}>
 					<XIcon aria-hidden="true" className="size-3.5" />
@@ -181,8 +227,21 @@ const ADD_BUTTON =
 
 /** The composer's 📎 control: the picker button plus the pending chips.
  *  `lockRemoval` (default: `disabled`) hides the chips' ✕ — the chat locks
- *  it only while an upload runs, never for a streaming turn. */
-export function ContextAttachControl({ draft, disabled, lockRemoval = disabled }: { draft: AttachmentDraft; disabled?: boolean; lockRemoval?: boolean }) {
+ *  it only while an upload runs, never for a streaming turn.
+ *  `teachingSource` (start composers in teach mode only — owner,
+ *  2026-11-03) puts a "Teaching source" checkbox on each PDF / text chip;
+ *  `disabled` greys it out while graph picks exist. */
+export function ContextAttachControl({
+	draft,
+	disabled,
+	lockRemoval = disabled,
+	teachingSource,
+}: {
+	draft: AttachmentDraft;
+	disabled?: boolean;
+	lockRemoval?: boolean;
+	teachingSource?: { disabled: boolean };
+}) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	return (
 		<>
@@ -209,7 +268,29 @@ export function ContextAttachControl({ draft, disabled, lockRemoval = disabled }
 				Add context
 			</button>
 			{draft.files.map((f) => (
-				<Chip key={f.key} name={f.file.name} onRemove={lockRemoval ? undefined : () => draft.remove(f.key)} />
+				<Chip
+					key={f.key}
+					name={f.file.name}
+					onRemove={lockRemoval ? undefined : () => draft.remove(f.key)}
+					extra={
+						teachingSource && canBeTeachingSource(f.file.name) ? (
+							<label
+								title={teachingSource.disabled ? TEACHING_SOURCE_PICKS_HINT : undefined}
+								className="flex shrink-0 cursor-pointer items-center gap-1 pl-1 text-muted-foreground has-disabled:cursor-not-allowed has-disabled:opacity-50"
+							>
+								<input
+									type="checkbox"
+									data-testid="teaching-source-checkbox"
+									checked={draft.sourceKey === f.key}
+									disabled={teachingSource.disabled || disabled}
+									onChange={(e) => draft.setSource(e.target.checked ? f.key : null)}
+									className="cursor-pointer disabled:cursor-not-allowed"
+								/>
+								Teaching source
+							</label>
+						) : undefined
+					}
+				/>
 			))}
 			{draft.error && (
 				<p role="alert" className="w-full whitespace-pre-wrap break-words text-xs text-destructive">

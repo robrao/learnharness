@@ -131,7 +131,9 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active;
+	// A ticked teaching source starts without text (the goal is optional).
+	const hasSource = mode === "teach" && !!attachments?.sourceKey;
+	const canSend = text.trim().length > 0 || dictation.active || hasSource;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -193,9 +195,15 @@ export function DraftShell({
 									picker={
 										<>
 											{(picks.length > 0 || mode === "practice") && (
-												<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
+												<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} disabled={hasSource} />
 											)}
-											{attachments && <ContextAttachControl draft={attachments} disabled={busy} />}
+											{attachments && (
+												<ContextAttachControl
+													draft={attachments}
+													disabled={busy}
+													teachingSource={mode === "teach" ? { disabled: picks.length > 0 } : undefined}
+												/>
+											)}
 										</>
 									}
 									setup={setupCta}
@@ -216,7 +224,13 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={
+											mode === "practice"
+												? "What do you want to practice?"
+												: hasSource
+													? "What do you want from this file? (optional)"
+													: "What do you want to learn?"
+										}
 									/>
 								</div>
 								<StatsBar
@@ -295,7 +309,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
-		if (!draft || startingRef.current) return;
+		const source = mode === "teach" ? attachments.files.find((f) => f.key === attachments.sourceKey) : undefined;
+		if ((!draft && !source) || startingRef.current) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -318,9 +333,17 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		startingRef.current = true;
 		setBusy(true);
 		setStartError(false);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
+		// With a ticked teaching source the text is the digest's goal; a blank
+		// one titles the session after the file (owner, 2026-11-03).
+		void startDraftSession(draft || source!.file.name, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
 			starterRef.current, JSON.stringify(catalog?.slots.strong),
-			attachments.files.length > 0 ? { identity: attachments.identity(), upload: (chatId) => attachments.upload(chatId) } : undefined)
+			attachments.files.length > 0
+				? {
+						identity: attachments.identity(),
+						upload: (chatId) => attachments.upload(chatId),
+						...(source ? { sourceId: () => attachments.sourceId(), ...(draft ? { goal: draft } : {}) } : {}),
+					}
+				: undefined)
 			.then((target) => {
 				if (target) router.push(target);
 				else { startingRef.current = false; setBusy(false); }

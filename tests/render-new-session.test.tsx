@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { DraftShell, startDraftSession } from "../components/new-session.tsx";
 import { clearOpeningPrompt, readOpeningPrompt, readOpeningPromptEntry, OPENING_PROMPT_FAILURE } from "../components/opening-prompt.ts";
 import { SessionStarter } from "../components/start-session.ts";
-import type { AttachmentDraft } from "../components/attachments.tsx";
+import { canBeTeachingSource, type AttachmentDraft } from "../components/attachments.tsx";
+import { NodePickerControl } from "../components/composer-actions.tsx";
 
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 beforeEach(() => {
@@ -301,6 +302,9 @@ describe("context attachments on a new session (2026-10-29)", () => {
 			clear() {},
 			upload: async () => [],
 			identity: () => "k1",
+			sourceKey: null,
+			setSource() {},
+			sourceId: () => undefined,
 		};
 		const html = renderToStaticMarkup(<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} attachments={draft} />);
 		assert.match(html, /data-testid="attach-context"/);
@@ -308,5 +312,130 @@ describe("context attachments on a new session (2026-10-29)", () => {
 		assert.match(html, /accept="[^"]*\.epub[^"]*"/);
 		assert.match(html, /mechanics\.epub/);
 		assert.match(html, /aria-label="Remove mechanics\.epub"/);
+	});
+});
+
+/** A draft holding these files, the one keyed `ticked` checked as the source. */
+function draftOf(names: string[], ticked: string | null = null): AttachmentDraft {
+	return {
+		files: names.map((name) => ({ key: name, file: new File(["x"], name) })),
+		error: null,
+		add() {},
+		remove() {},
+		clear() {},
+		upload: async () => [],
+		identity: () => names.join("|"),
+		sourceKey: ticked,
+		setSource() {},
+		sourceId: () => undefined,
+	};
+}
+
+const checkboxes = (html: string) => html.match(/<input[^>]*data-testid="teaching-source-checkbox"[^>]*>/g) ?? [];
+
+describe("the teaching source checkbox (owner, 2026-11-03)", () => {
+	it("offered only on PDF / .txt / .md chips, unticked by default, in teach mode", () => {
+		const html = renderToStaticMarkup(
+			<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} attachments={draftOf(["calc.pdf", "notes.md", "plain.txt", "book.epub", "fig.png"])} />,
+		);
+		assert.equal(checkboxes(html).length, 3);
+		assert.ok(checkboxes(html).every((c) => !c.includes("checked")), "unticked by default");
+		assert.match(html, /Teaching source/);
+		assert.deepEqual(["a.pdf", "a.md", "a.txt", "a.epub", "a.png", "a.docx"].map(canBeTeachingSource), [true, true, true, false, false, false]);
+	});
+
+	it("practice mode hides it", () => {
+		const html = renderToStaticMarkup(<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} mode="practice" attachments={draftOf(["calc.pdf"])} />);
+		assert.equal(checkboxes(html).length, 0);
+	});
+
+	it("the ticked file is checked; the send works with empty text and the placeholder says the goal is optional", () => {
+		const html = renderToStaticMarkup(
+			<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} attachments={draftOf(["calc.pdf", "notes.md"], "notes.md")} />,
+		);
+		const [pdf, md] = checkboxes(html);
+		assert.ok(!pdf!.includes("checked") && md!.includes("checked"), "exactly the ticked file");
+		assert.match(html, /What do you want from this file\? \(optional\)/);
+		assert.doesNotMatch(html, /aria-label="Send"[^>]*disabled=""/);
+		const empty = renderToStaticMarkup(<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} attachments={draftOf(["calc.pdf"])} />);
+		assert.match(empty, /aria-label="Send"[^>]*disabled=""/, "without a ticked source, empty text cannot send");
+	});
+
+	it("picks disable the checkbox; a ticked source disables the picker", () => {
+		const picks = [{ id: "p1", name: "Limit", statement: "x" }];
+		const withPicks = renderToStaticMarkup(
+			<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} picks={picks} attachments={draftOf(["calc.pdf"])} />,
+		);
+		assert.ok(checkboxes(withPicks)[0]!.includes("disabled"));
+		assert.match(withPicks, /Clear your picks to use a file as the teaching source/);
+
+		const ticked = renderToStaticMarkup(
+			<DraftShell busy={false} text="" onChange={() => {}} onSend={() => {}} picks={picks} attachments={draftOf(["calc.pdf"], "calc.pdf")} />,
+		);
+		assert.match(ticked, /data-testid="practice-props-chip"[^>]*disabled=""/);
+
+		const html = renderToStaticMarkup(<NodePickerControl count={2} disabled />);
+		assert.equal((html.match(/disabled=""/g) ?? []).length, 2);
+		assert.match(html, /Untick the teaching source to pick nodes/);
+		assert.ok(!renderToStaticMarkup(<NodePickerControl count={2} />).includes(`disabled=""`));
+	});
+});
+
+describe("the start flow with a teaching source", () => {
+	function sourceFetch(id: string, sourceStatus: () => number) {
+		const calls: { url: string; body: unknown }[] = [];
+		const f = (async (url: string, init?: RequestInit) => {
+			calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
+			if (String(url).endsWith("/source")) {
+				const status = sourceStatus();
+				return new Response(JSON.stringify(status === 200 ? { ok: true } : { error: "Only a PDF, .txt or .md file can be the teaching source." }), { status });
+			}
+			return new Response(JSON.stringify({ id }), { status: 200 });
+		}) as typeof fetch;
+		return { f, calls };
+	}
+
+	it("uploads, names the source with the goal, and stashes NO opening prompt", async () => {
+		const { f, calls } = sourceFetch("c_src", () => 200);
+		const target = await startDraftSession("pass the exam", f, undefined, undefined, new SessionStarter(), undefined, {
+			identity: "calc.pdf#calc.pdf",
+			upload: async () => ["att_1", "att_2"],
+			sourceId: () => "att_1",
+			goal: "pass the exam",
+		});
+		assert.equal(target, "/chat/c_src");
+		assert.deepEqual(calls.map((c) => c.url), ["/api/chats", "/api/chats/c_src/source"]);
+		assert.deepEqual(calls[1]!.body, { attachmentId: "att_1", goal: "pass the exam" });
+		assert.equal(readOpeningPromptEntry("c_src"), undefined, "the server starts the session");
+	});
+
+	it("no goal: the field is omitted", async () => {
+		const { f, calls } = sourceFetch("c_nogoal", () => 200);
+		await startDraftSession("calc.pdf", f, undefined, undefined, new SessionStarter(), undefined, {
+			identity: "calc.pdf#calc.pdf",
+			upload: async () => ["att_1"],
+			sourceId: () => "att_1",
+		});
+		assert.deepEqual(calls[0]!.body, { title: "calc.pdf" });
+		assert.deepEqual(calls[1]!.body, { attachmentId: "att_1" });
+	});
+
+	it("a refused source call surfaces the server's reason; the retry reuses the session and re-sends only that call", async () => {
+		let attempt = 0;
+		const { f, calls } = sourceFetch("c_srcretry", () => (attempt++ === 0 ? 400 : 200));
+		const starter = new SessionStarter();
+		const uploads: string[] = [];
+		const attach = {
+			identity: "calc.pdf#calc.pdf",
+			upload: async (chatId: string) => {
+				uploads.push(chatId);
+				return ["att_1"];
+			},
+			sourceId: () => "att_1",
+		};
+		await assert.rejects(startDraftSession("calc.pdf", f, undefined, undefined, starter, undefined, attach), /Only a PDF/);
+		assert.equal(await startDraftSession("calc.pdf", f, undefined, undefined, starter, undefined, attach), "/chat/c_srcretry");
+		assert.deepEqual(calls.map((c) => c.url), ["/api/chats", "/api/chats/c_srcretry/source", "/api/chats/c_srcretry/source"]);
+		assert.equal(readOpeningPromptEntry("c_srcretry"), undefined);
 	});
 });

@@ -1,3 +1,4 @@
+import { setTeachingSourceRequest } from "./attachments";
 import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "./opening-prompt";
 
 interface SessionCreation {
@@ -16,12 +17,21 @@ export class SessionStarter {
 	/** `attach` uploads the draft's context files once the chat exists —
 	 *  BEFORE navigation (File objects can't cross it); only their ids ride
 	 *  the opening-prompt handover. An upload failure throws with the
-	 *  session kept, so the retry reuses it and uploads only what's left. */
+	 *  session kept, so the retry reuses it and uploads only what's left.
+	 *  With a ticked teaching source (`sourceId` — owner, 2026-11-03) the
+	 *  server starts the session: the source is named with the learner's
+	 *  `goal` and NO opening prompt is stashed (the digest's steer is the
+	 *  first turn). A failed source call throws with the session kept too. */
 	async start(
 		body: SessionCreation,
 		fetchLike: typeof fetch,
 		settingsIdentity?: string,
-		attach?: { identity: string; upload: (chatId: string) => Promise<string[]> },
+		attach?: {
+			identity: string;
+			upload: (chatId: string) => Promise<string[]>;
+			sourceId?: () => string | undefined;
+			goal?: string;
+		},
 	): Promise<string> {
 		const identity = JSON.stringify([body, settingsIdentity, attach?.identity ?? ""]);
 		if (this.created?.identity !== identity) {
@@ -38,6 +48,11 @@ export class SessionStarter {
 			this.created = { identity, id: result.id };
 		}
 		const attachmentIds = attach ? await attach.upload(this.created.id) : undefined;
+		const sourceId = attach?.sourceId?.();
+		if (sourceId) {
+			await setTeachingSourceRequest(this.created.id, sourceId, attach?.goal, fetchLike);
+			return `/chat/${this.created.id}`;
+		}
 		if (!stashOpeningPrompt(this.created.id, body.title, false, attachmentIds)) throw new Error(OPENING_PROMPT_FAILURE);
 		return `/chat/${this.created.id}`;
 	}

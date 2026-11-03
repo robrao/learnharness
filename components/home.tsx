@@ -107,6 +107,7 @@ export function Home({
 	 * the run, let the last finals land, THEN read the REF mirror (not the
 	 * state closure) and run. Applies before the setup/key guards too, so
 	 * an intercepted draft is the complete one. */
+	const hasSource = mode === "teach" && attachments.sourceKey !== null;
 	const start = () => {
 		if (!dictation.active) {
 			void begin();
@@ -116,7 +117,9 @@ export function Home({
 	};
 	const begin = async () => {
 		const t = topicRef.current.trim();
-		if (!t || startingRef.current) return;
+		// A ticked teaching source starts without text (the goal is optional).
+		const source = mode === "teach" ? attachments.files.find((f) => f.key === attachments.sourceKey) : undefined;
+		if ((!t && !source) || startingRef.current) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -149,11 +152,17 @@ export function Home({
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
-				title: t,
+				title: t || source!.file.name,
 				...(mode === "practice" ? { kind: "practice" } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong),
-			attachments.files.length > 0 ? { identity: attachments.identity(), upload: (chatId) => attachments.upload(chatId) } : undefined);
+			attachments.files.length > 0
+				? {
+						identity: attachments.identity(),
+						upload: (chatId) => attachments.upload(chatId),
+						...(source ? { sourceId: () => attachments.sourceId(), ...(t ? { goal: t } : {}) } : {}),
+					}
+				: undefined);
 			router.push(target);
 		} catch {
 			startingRef.current = false;
@@ -232,9 +241,14 @@ export function Home({
 										count={practiceProps.length}
 										onOpen={() => setChainSelectOpen(true)}
 										onClear={() => setPracticeProps([])}
+										disabled={mode === "teach" && attachments.sourceKey !== null}
 									/>
 								)}
-								<ContextAttachControl draft={attachments} disabled={busy} />
+								<ContextAttachControl
+									draft={attachments}
+									disabled={busy}
+									teachingSource={mode === "teach" ? { disabled: practiceProps.length > 0 } : undefined}
+								/>
 							</>
 						}
 						setup={zeroKeys ? (
@@ -284,7 +298,13 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={
+							mode === "practice"
+								? "What do you want to practice?"
+								: hasSource
+									? "What do you want from this file? (optional)"
+									: "What do you want to learn?"
+						}
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
@@ -294,7 +314,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
+						disabled={(!topic.trim() && !hasSource && !dictation.active) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
@@ -314,7 +334,11 @@ export function Home({
 										key={m}
 										type="button"
 										data-testid={`home-mode-${m}`}
-										onClick={() => setMode(m)}
+										onClick={() => {
+											setMode(m);
+											// The teaching source is teach-only; the file stays as context.
+											if (m === "practice") attachments.setSource(null);
+										}}
 										className={
 											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
 											(mode === m
