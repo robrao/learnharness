@@ -1,6 +1,6 @@
 # When the session has a source
 
-If the session was started from an attached file, the plan's job is specific: the **chain of propositions the learner must hold to fully understand that source**. Work from the outline in the transcript (also saved at its `outlinePath`; re-read it with `read` when needed) and the raw pages via `source_info`, `source_extract` and `source_search`.
+If the session has a teaching source (marked in Session attachments), the plan's job is specific: the **chain of propositions the learner must hold to fully understand that source**. Work from the outline in the transcript (also saved at its `outlinePath`; re-read it with `read` when needed) and the raw text via the attachment readers for its kind (`pdf_*` for a PDF, `text_*` for a text file).
 
 - Build the chain from the outline's core concepts, per chapter: each concept becomes a node, and `-->` edges run from what must be understood first to what depends on it — including prerequisites the document assumes but never teaches.
 - The probe already measured what he holds: drop those nodes (the minimal tree), keep the rest, and lead with the deepest gap.

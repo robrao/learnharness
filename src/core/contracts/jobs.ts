@@ -422,9 +422,9 @@ function steerText(kind: JobKind, result: JobResult): string {
  *  bracket convention marks injected session context (PREAMBLE LAW). */
 function digestSteerText(r: DigestResult): string {
 	return [
-		`[Session source] — the learner attached "${r.name}" to learn from (${r.sourceKind === "pdf" ? "PDF" : "text file"}).`,
+		`[Session source] — the learner chose "${r.name}" as the teaching source (${r.sourceKind === "pdf" ? "PDF" : "text file"}).`,
 		r.goal ? `His goal: ${r.goal}` : "He gave no goal — ask what he wants from it as part of probing.",
-		`Read raw ${r.sourceKind === "pdf" ? "pages" : "lines"} with the source_* tools. The outline below is also saved at ${r.outlinePath} — re-read it there any time.`,
+		`Read raw ${r.sourceKind === "pdf" ? "pages with the pdf_* tools" : "lines with the text_* tools"} (its path is in Session attachments). The outline below is also saved at ${r.outlinePath} — re-read it there any time.`,
 		"Begin probing what the learner already understands of this source's concepts.",
 		"",
 		r.outline,

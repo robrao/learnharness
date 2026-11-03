@@ -246,7 +246,7 @@ describe("digest agent", () => {
 
 describe("digest steer", () => {
 	const result: DigestResult = {
-		path: "/data/sources/c1/source.pdf",
+		path: "/data/attachments/0123abcd.pdf",
 		name: "Calc.pdf",
 		sourceKind: "pdf",
 		outlinePath: "/data/sources/c1/outline.md",
@@ -257,11 +257,12 @@ describe("digest steer", () => {
 
 	it("success: the steer is the first prober input — goal, paths, tools, outline", () => {
 		const steer = buildSubagentSteer({ id: "job_1", kind: "digest", toolCallId: "digest_c1" }, result);
-		assert.match(steer.content, /^\[Session source\] — the learner attached "Calc\.pdf"/);
+		assert.match(steer.content, /^\[Session source\] — the learner chose "Calc\.pdf" as the teaching source/);
 		assert.match(steer.content, /His goal: pass the exam/);
 		assert.ok(!steer.content.includes(result.path), "the stored source path never reaches the model");
 		assert.match(steer.content, /\/data\/sources\/c1\/outline\.md/);
-		assert.match(steer.content, /source_\* tools/);
+		assert.match(steer.content, /pdf_\* tools/);
+		assert.match(buildSubagentSteer({ id: "job_2", kind: "digest", toolCallId: "t" }, { ...result, sourceKind: "text" }).content, /text_\* tools/);
 		assert.ok(steer.content.endsWith(result.outline));
 	});
 
