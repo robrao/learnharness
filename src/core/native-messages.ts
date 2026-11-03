@@ -46,6 +46,7 @@ import {
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
+import type { SourceKind } from "./contracts/jobs.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -69,6 +70,7 @@ export interface LhMarkerMessage {
 	role: "custom";
 	customType:
 		| "graph-context"
+		| "source-attached"
 		| "probe-handoff"
 		| "subagent-steer"
 		| "subagent-abort"
@@ -308,6 +310,32 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 		content: lines.join("\n"),
 		display: true,
 		details: { propositions: picks, chains },
+		timestamp: Date.now(),
+	};
+}
+
+/** The source-attached marker's details (UI payload — never model-visible). */
+export interface SourceAttachedDetails {
+	name: string;
+	sourceKind: SourceKind;
+	/** The digest job's ids — the card reads the live job through them. */
+	jobId: string;
+	toolCallId: string;
+	goal?: string;
+}
+
+/** A learn-from-a-file session's opening marker (2026-10-28): message[0],
+ *  BEFORE any turn — the card shows the digest job's live state. UI-ONLY
+ *  (owner, 2026-10-28): toLlmMessages skips it; the digest's steer carries
+ *  all the model context and fires the first prober turn. */
+export function newSourceAttachedMessage(details: SourceAttachedDetails): LhMarkerMessage {
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "source-attached",
+		content: `Attached "${details.name}" to learn from.`,
+		display: true,
+		details,
 		timestamp: Date.now(),
 	};
 }
@@ -637,9 +665,10 @@ export function toLlmMessages(
 		const role = (m as { role?: string }).role;
 		if (role === "custom") {
 			const marker = m as LhMarkerMessage;
-			// UI-only markers: plan blocks, and problem dismissals (the
-			// synthesized conclude pair carries the model's face).
-			if (marker.customType === "plan-block" || marker.customType === "problem-dismissed") continue;
+			// UI-only markers: plan blocks, problem dismissals (the
+			// synthesized conclude pair carries the model's face), and the
+			// source-attached card (the digest steer carries its context).
+			if (marker.customType === "plan-block" || marker.customType === "problem-dismissed" || marker.customType === "source-attached") continue;
 			// The head supersedes every compaction marker, not only its own
 			// stored position. Without a resolved head, preserve the existing
 			// full-history fallback, including the summary text.
@@ -868,7 +897,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "practice-next"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "source-attached", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		if (message.isError && (message.details as { questionRecovery?: unknown } | null)?.questionRecovery === true) {

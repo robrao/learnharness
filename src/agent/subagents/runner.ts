@@ -7,7 +7,10 @@ import {
 	piUsageToStep,
 	type DemoResult,
 	type DemoToolInput,
+	type DigestResult,
+	type DigestToolInput,
 	type JobKind,
+	type JobResult,
 	type JobRecord,
 	type JobUsage,
 	type PdfResult,
@@ -27,6 +30,7 @@ import type { ModelRole } from "../../../config.ts";
 import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
 import type { ChatStore, JobStore } from "../../core/ports.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
+import { digestFailure, runDigestAgent } from "./digest.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { runResearcherAgent } from "./researcher.ts";
 import { runVisualMaker } from "./visual-maker.ts";
@@ -63,7 +67,7 @@ export const visualModelOverride: { current?: PiEngine } = {};
 export const pdfModelOverride: { current?: PiEngine } = {};
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
+type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput | DigestToolInput;
 
 export interface JobRunnerDeps {
 	chatStore: ChatStore;
@@ -124,6 +128,8 @@ const KIND_ROLE: Record<JobKind, ModelRole> = {
 	demo: "demoBuilder",
 	visual: "visualMaker",
 	pdf: "pdfReader",
+	// The digest reads text on the PDF reader's slot (owner, 2026-10-28).
+	digest: "pdfReader",
 };
 
 export function createJobRunner(deps: JobRunnerDeps): JobRunner {
@@ -187,6 +193,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		demo: (jobId, engine, input, loop) => runDemoJob(jobId, engine, input, loop),
 		visual: (jobId, engine, input, loop) => runVisualJob(jobId, engine, input, loop),
 		pdf: (jobId, engine, input, loop) => runPdfJob(jobId, engine, input, loop),
+		digest: (jobId, engine, input, loop) => runDigestJob(jobId, engine, input, loop),
 	};
 
 	async function runJob(jobId: string, input?: JobToolInput): Promise<void> {
@@ -213,15 +220,13 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		// instead of waiting forever on a job it already dispatched.
 		const refuse = async (reason: string): Promise<void> => {
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			const resolved = resolveInput(job, input) as
-				| ResearchToolInput
-				| DemoToolInput
-				| VisualToolInput
-				| PdfToolInput
-				| undefined;
+			const resolved = resolveInput(job, input);
 			const pdf = resolved as PdfToolInput | undefined;
-			const failure: ResearchResult | DemoResult | VisualResult | PdfResult =
-				job.kind === "research"
+			const digest = resolved as DigestToolInput | undefined;
+			const failure: JobResult =
+				job.kind === "digest"
+					? digestFailure(digest, reason)
+					: job.kind === "research"
 					? { brief: `Research failed: ${reason}`, sources: [] }
 					: job.kind === "demo"
 						? {
@@ -301,7 +306,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 * Save the computation outcome and session delivery obligation together.
 	 * Worker liveness ends after cleanup, not after a lesson consumes the result.
 	 */
-	async function finishJob(jobId: string, result: ResearchResult | DemoResult | VisualResult | PdfResult): Promise<void> {
+	async function finishJob(jobId: string, result: JobResult): Promise<void> {
 		const job = jobStore.getJob(jobId);
 		if (!job) return;
 		// Aborted mid-run (abortJob flips the record before
@@ -309,6 +314,13 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		// the record and queues the abort steer itself.
 		if (job.status !== "running") return;
 		const failed = isSubagentFailure(job.kind, result);
+		// A failed digest owes the session NO turn (owner, 2026-10-28): the
+		// session stays open showing the error, and the prober never starts
+		// without an outline. Record the outcome; deliver nothing.
+		if (failed && job.kind === "digest") {
+			jobStore.updateJob(jobId, { result, status: "error", activity: "failed" });
+			return;
+		}
 		jobStore.updateJob(jobId, {
 			result,
 			status: failed ? "error" : "done",
@@ -524,6 +536,42 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { path, question, brief: `PDF failed: ${reason}`, pagesRead: [], pagesConsulted: [] });
+		}
+	}
+
+	// ─── source digest (learn-from-a-file) ───────────────────────────────────
+
+	async function runDigestJob(
+		jobId: string,
+		model: PiEngine | undefined,
+		passedInput: JobToolInput | undefined,
+		loop: LoopContext,
+	): Promise<void> {
+		const ctx = jobContext(jobId);
+		if (!ctx) return;
+		const input = (passedInput ?? resolveInput(ctx.job, passedInput)) as DigestToolInput | undefined;
+		if (!input?.path || !input.outlinePath) {
+			jobStore.updateJob(jobId, { error: "digest input unavailable" });
+			await finishJob(jobId, digestFailure(input, "the digest input is unavailable."));
+			return;
+		}
+		try {
+			jobStore.updateJob(jobId, { activity: "digesting source" });
+			const result: DigestResult = await runDigestAgent(input, {
+				engine: model,
+				abortSignal: loop.abortSignal,
+				chatId: loop.chatId,
+				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+			});
+			if (isSubagentFailure("digest", result) && stillRunning(jobId))
+				jobStore.updateJob(jobId, { error: result.outline.replace(/^Digest failed:\s*/i, "") });
+			await finishJob(jobId, result);
+		} catch (err) {
+			if (loop.abortSignal.aborted) return;
+			const reason = err instanceof Error ? err.message : String(err);
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, digestFailure(input, reason));
 		}
 	}
 

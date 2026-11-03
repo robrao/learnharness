@@ -64,7 +64,8 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type { CallUsage, ChatRecord } from "../core/contracts.ts";
+import type { CallUsage, ChatRecord, DigestToolInput } from "../core/contracts.ts";
+import type { SessionAttachment } from "../agent/tools/attachments.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -173,6 +174,26 @@ setJobRespawn((jobId) => void jobRunner.runJob(jobId));
 // built in this composition root, so the seam is installed here — the
 // tools read it fresh per call (allowed folders + the app's private paths).
 setFileAccessPolicy(fileAccessPolicy);
+
+/** Start a job's runner without a dispatching tool call (the teaching
+ *  source's digest — learn-from-a-file). Fire-and-forget like every spawn;
+ *  the job record already carries its input. */
+export function startJob(jobId: string): void {
+	void jobRunner.runJob(jobId);
+}
+
+/** The session's teaching source, once DIGESTED: the active attachment
+ *  ChatRecord.teachingSourceId names, joined with the finished digest's
+ *  outline. Jobs outlive compaction, so this survives a summarized
+ *  transcript. Undefined while there is no source or no finished digest. */
+export function sessionSource(chatId: string): { attachment: SessionAttachment; outlinePath: string } | undefined {
+	const chat = stores.chatStore.getChat(chatId);
+	const attachment = chat ? sessionAttachments(chat).find((a) => a.teachingSource) : undefined;
+	if (!attachment) return undefined;
+	const job = stores.jobStore.listJobs(chatId).find((j) => j.kind === "digest" && j.status === "done");
+	const outlinePath = (job?.input as DigestToolInput | undefined)?.outlinePath;
+	return outlinePath ? { attachment, outlinePath } : undefined;
+}
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(

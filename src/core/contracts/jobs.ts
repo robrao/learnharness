@@ -12,7 +12,7 @@ import { newHandoffMessage } from "../native-messages.ts";
 
 // ─── Async sub-agent jobs (docs/archive/vision.md §2.5; docs/archive/plan.md Wave 0 protocol) ────────────
 
-export type JobKind = "research" | "demo" | "visual" | "pdf";
+export type JobKind = "research" | "demo" | "visual" | "pdf" | "digest";
 export type JobStatus = "running" | "done" | "error";
 
 export interface JobRecord {
@@ -263,6 +263,46 @@ export interface PdfResult {
  *  PDF, lines for a .txt/.md file (learn-from-a-file, 2026-10-28). */
 export type SourceKind = "pdf" | "text";
 
+/** The source digest (learn-from-a-file, 2026-10-28): reads the session's
+ *  teaching source ONCE and writes a chapters → core-concepts outline
+ *  (page- or heading-cited) the prober and teacher work from. Started
+ *  server-side by POST /api/chats/[id]/source (no tool call dispatches it). */
+
+/** The learner-abort error on a job record. A digest abort delivers
+ *  nothing (owner, 2026-10-28) — the source card reads this to show
+ *  "reading stopped" instead of a failure. */
+export const DIGEST_ABORTED_ERROR = "Aborted by learner";
+
+export interface DigestToolInput {
+	/** Absolute path of the stored upload. */
+	path: string;
+	sourceKind: SourceKind;
+	/** The learner's file name (display + steer text). */
+	name: string;
+	/** Where the finished outline is written (survives compaction). */
+	outlinePath: string;
+	/** The learner's typed goal, if any. */
+	goal?: string;
+}
+
+export interface DigestResult {
+	path: string;
+	name: string;
+	sourceKind: SourceKind;
+	outlinePath: string;
+	/** The outline markdown. Failure shape: /^Digest failed:/i. */
+	outline: string;
+	goal?: string;
+	/** What the digest actually read — merged ranges in the source's unit
+	 *  (pages for pdf, lines for text), e.g. ["1-40", "120-180"]. */
+	consulted: string[];
+	/** Set only on readability-gate failures: retrying cannot help. */
+	permanent?: true;
+}
+
+/** Any sub-agent job's result payload. */
+export type JobResult = ResearchResult | DemoResult | VisualResult | PdfResult | DigestResult;
+
 // ─── Sub-agent steer messages (THE ASYNC PROTOCOL §3–4) ─────────────────────
 //
 // Wave B (owner-approved 2026-09-26): steers are NATIVE record messages —
@@ -288,7 +328,7 @@ export interface SubagentResultMeta {
 /** The data-subagent-artifact part payload: what the UI renders. */
 export interface SubagentArtifactData {
 	kind: JobKind;
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: JobResult;
 	/** The learner's pinned UI state (invert switch) riding the record. */
 	ui?: { inverted?: boolean };
 }
@@ -296,7 +336,7 @@ export interface SubagentArtifactData {
 /** A result steer's marker details: the UI's meta + artifact in one
  *  payload (the projection splits it into metadata + data part). */
 export interface SteerDetails extends SubagentResultMeta {
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: JobResult;
 	/** LEARNER UI state pinned onto the artifact (owner, 2026-10-07): the
 	 *  invert switch's position, persisted so navigating away and back (or
 	 *  restarting) keeps it. A VIEW preference — never enters the teacher's
@@ -327,7 +367,7 @@ export type SteerMessage = LhMarkerMessage;
 /** Whether a result is the failure shape (html/svg empty, failure brief). */
 export function isSubagentFailure(
 	kind: JobKind,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
+	result: JobResult,
 ): boolean {
 	if (kind === "research") {
 		const r = result as ResearchResult;
@@ -341,12 +381,13 @@ export function isSubagentFailure(
 		const r = result as PdfResult;
 		return /^PDF failed:/i.test(r.brief);
 	}
+	if (kind === "digest") return /^Digest failed:/i.test((result as DigestResult).outline);
 	const r = result as VisualResult;
 	return typeof r.svg !== "string" || r.svg.length === 0;
 }
 
 /** The model-facing text of a steer: what the result IS, what to do with it. */
-function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualResult | PdfResult): string {
+function steerText(kind: JobKind, result: JobResult): string {
 	if (isSubagentFailure(kind, result)) {
 		if (kind === "research")
 			return `${(result as ResearchResult).brief}\n\nContinue with what you can establish and flag the uncertainty to the learner.`;
@@ -356,10 +397,12 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
 			}. Fall back to explaining in prose; if the brief was the problem, re-call demo with a tighter one.`;
 		if (kind === "pdf")
 			return `${(result as PdfResult).brief}\n\nContinue with what you can establish from the session and flag the gap to the learner.`;
+		if (kind === "digest") return (result as DigestResult).outline;
 		return `The figure could not be made: ${(result as VisualResult).notes ?? "unknown reason"}. Fall back to prose or mermaid, or re-call visual with a tighter brief.`;
 	}
 	if (kind === "research")
 		return `Research complete — the researcher's full brief follows. Weave it into the lesson and cite its sources when you use its findings:\n\n${(result as ResearchResult).brief}`;
+	if (kind === "digest") return digestSteerText(result as DigestResult);
 	if (kind === "pdf")
 		return `PDF reading complete — the reader's brief on "${(result as PdfResult).path}" follows, with page citations. Weave it into the lesson and cite pages when you use it:\n\n${(result as PdfResult).brief}`;
 	if (kind === "demo")
@@ -375,6 +418,19 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
 	}.\nReference its elements as you teach.`;
 }
 
+/** The digest steer — the learner's first turn for a source session. The
+ *  bracket convention marks injected session context (PREAMBLE LAW). */
+function digestSteerText(r: DigestResult): string {
+	return [
+		`[Session source] — the learner attached "${r.name}" to learn from (${r.sourceKind === "pdf" ? "PDF" : "text file"}).`,
+		r.goal ? `His goal: ${r.goal}` : "He gave no goal — ask what he wants from it as part of probing.",
+		`Read raw ${r.sourceKind === "pdf" ? "pages" : "lines"} with the source_* tools. The outline below is also saved at ${r.outlinePath} — re-read it there any time.`,
+		"Begin probing what the learner already understands of this source's concepts.",
+		"",
+		r.outline,
+	].join("\n");
+}
+
 /**
  * Build the steer message for a finished job (pure — shared by the runner,
  * the wake pipeline, and tests). Deterministic id per job makes re-delivery
@@ -382,7 +438,7 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
  */
 export function buildSubagentSteer(
 	job: Pick<JobRecord, "id" | "kind" | "toolCallId">,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
+	result: JobResult,
 ): SteerMessage {
 	return {
 		id: `steer_${job.id}`,
@@ -425,6 +481,7 @@ function abortText(kind: JobKind): string {
 		return "Research aborted — the learner aborted the research job, so no brief is coming. Acknowledge it in one line and continue teaching without it (or offer to re-dispatch it).";
 	if (kind === "demo")
 		return "The demo job was aborted by the learner — no demo is coming. Acknowledge it in one line and teach the topic in prose instead (a re-dispatch is fine if the learner wants it).";
+	// No digest branch: a digest abort delivers nothing (abortJob).
 	if (kind === "pdf")
 		return "The PDF reading job was aborted by the learner — no brief is coming. Acknowledge it in one line and continue without it (a re-dispatch is fine if the learner wants it).";
 	return "The figure job was aborted by the learner — no figure is coming. Acknowledge it in one line and teach without it (a re-dispatch is fine if the learner wants it).";

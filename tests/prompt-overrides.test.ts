@@ -179,6 +179,7 @@ describe("the source-derived segment list", () => {
 			[
 				"system-prompt.md",
 				"prober/10-probe-doctrine.md",
+				"prober/20-source-probing.md",
 				"shared/10-voice.md",
 				"shared/15-accuracy.md",
 				"shared/16-mental-model.md",
@@ -190,6 +191,7 @@ describe("the source-derived segment list", () => {
 		);
 		assert.equal(teacher.some((s) => s.path === "teacher/05-method.md"), true);
 		assert.equal(teacher.some((s) => s.path === "teacher/10-planning.md"), true);
+		assert.equal(teacher.some((s) => s.path === "teacher/15-source-planning.md"), true);
 		assert.equal(teacher.some((s) => s.path === "teacher/60-probing-in-brief.md"), false);
 		assert.equal(
 			teacher.every(

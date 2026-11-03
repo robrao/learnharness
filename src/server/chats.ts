@@ -9,6 +9,7 @@ import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
+import { removeSourceDir } from "./source-dir.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -156,6 +157,7 @@ function finishChatRecordDeletion(chatId: string): number {
 		clearTurnFailure(chatId);
 		// Shared blobs stay while another session still attaches them.
 		if (blobs.length > 0) removeBlobsUnreferenced(blobs, stores.chatStore.referencedAttachmentFiles());
+		removeSourceDir(chatId);
 	}
 	return jobsRemoved;
 }

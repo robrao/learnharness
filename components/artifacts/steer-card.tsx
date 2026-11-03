@@ -1,11 +1,12 @@
 "use client";
 
 import { CheckIcon, CircleX } from "lucide-react";
-import type { PdfResult, ResearchResult, SubagentArtifactData } from "@/src/core";
+import type { DigestResult, PdfResult, ResearchResult, SubagentArtifactData } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
 
 /**
@@ -55,11 +56,32 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			) : (
 				<PdfCompleteBadge result={data.result as PdfResult} />
 			);
+		case "digest":
+			return <DigestCompleteBadge result={data.result as DigestResult} />;
 		case "demo":
 			return <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
 		case "visual":
 			return <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
 	}
+}
+
+/** Quiet one-liner for the source digest: the outline rides the steer to the
+ * prober; the badge marks it, with the full outline one click away. */
+function DigestCompleteBadge({ result }: { result: DigestResult }) {
+	return (
+		<details data-testid="digest-complete-badge" className="group w-full text-xs text-muted-foreground">
+			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+				<CheckIcon className="size-3.5" />
+				<span className="font-medium uppercase tracking-wide">Source</span>
+				<span>outline ready</span>
+				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view outline</span>
+				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide outline</span>
+			</summary>
+			<div className="mt-2 rounded-xl border bg-card p-4 text-sm text-card-foreground">
+				<MessageResponse>{result.outline}</MessageResponse>
+			</div>
+		</details>
+	);
 }
 
 /** The aborted-job chip: mirrors the complete-badge one-liner — the

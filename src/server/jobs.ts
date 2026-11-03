@@ -58,6 +58,7 @@
  */
 
 import {
+	DIGEST_ABORTED_ERROR,
 	buildAbortSteer,
 	buildSubagentSteer,
 	isSubagentFailure,
@@ -437,9 +438,18 @@ export function abortJob(jobId: string): AbortOutcome {
 		return { ok: false, reason: "not_running" };
 	}
 
+	// A digest abort owes the session NO turn (owner, 2026-10-28) — same
+	// law as a failed digest: record it, deliver nothing; the source card
+	// shows "reading stopped" with a retry.
+	if (job.kind === "digest") {
+		fireJobAbort(jobId);
+		stores.jobStore.updateJob(jobId, { status: "error", error: DIGEST_ABORTED_ERROR, activity: "aborted" });
+		return { ok: true };
+	}
+
 	fireJobAbort(jobId);
 	stores.jobStore.updateJob(jobId, {
-		status: "error", error: "Aborted by learner", activity: "aborted",
+		status: "error", error: DIGEST_ABORTED_ERROR, activity: "aborted",
 		delivery: { kind: "abort", status: "pending" },
 	});
 	void deliverJobResult(buildAbortSteer(job)).catch(() => {

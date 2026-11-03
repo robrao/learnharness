@@ -39,6 +39,8 @@ export interface SessionAttachment {
 	record: AttachmentRecord;
 	/** Absolute path of the stored file. */
 	path: string;
+	/** The session's teaching source (ChatRecord.teachingSourceId). */
+	teachingSource?: true;
 }
 
 function describe(a: AttachmentRecord): string {
@@ -51,7 +53,7 @@ function describe(a: AttachmentRecord): string {
 
 export function attachmentsPromptSection(attachments: readonly SessionAttachment[]): string {
 	if (attachments.length === 0) return "";
-	const lines = attachments.map((a) => `- ${a.record.name} — ${describe(a.record)} — path: ${a.path}`);
+	const lines = attachments.map((a) => `- ${a.record.name} — ${describe(a.record)} — path: ${a.path}${a.teachingSource ? " — TEACHING SOURCE" : ""}`);
 	return [
 		"## Session attachments",
 		"",

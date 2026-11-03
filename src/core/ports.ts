@@ -73,6 +73,9 @@ export interface ChatStore {
 	/** Detach (true) or restore (false) one attachment. Null when the chat has no attachment with that id.
 	 *  Not conversation activity: updatedAt stays put. */
 	setAttachmentDetached(id: string, attachmentId: string, detached: boolean): AttachmentRecord | null;
+	/** Name (or, with undefined, un-name) the teaching-source attachment.
+	 *  Not conversation activity: updatedAt stays put. */
+	setTeachingSourceId(id: string, attachmentId: string | undefined): void;
 	/** Every attachment blob name any chat record references (raw scan —
 	 *  includes records this build refuses to read), for blob sweeps. */
 	referencedAttachmentFiles(): Set<string>;

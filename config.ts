@@ -28,6 +28,8 @@ export const PATHS = {
 	/** Session attachments: content-addressed blobs, data/attachments/<sha256><ext>. */
 	attachments: path.join(DATA_ROOT, "attachments"),
 	graph: path.join(DATA_ROOT, "graph"),
+	/** Teaching sources: <chatId>/outline.md per session (the file itself is an attachment blob). */
+	sources: path.join(DATA_ROOT, "sources"),
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(DATA_ROOT, "debug"),

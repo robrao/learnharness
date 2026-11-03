@@ -396,6 +396,16 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "source-attached": {
+			// Learn-from-a-file (2026-10-28): a card showing the digest job's
+			// live state — user-side scaffolding like the graph-context card.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-source", id: `src_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "probe-handoff": {
 			out.push({
 				id: marker.id,

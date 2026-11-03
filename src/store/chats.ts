@@ -225,6 +225,17 @@ function addAttachments(id: string, attachments: AttachmentRecord[]): void {
 	writeChat(record);
 }
 
+/** Name (or, with undefined, un-name) the session's teaching source — the
+ *  one attachment it is taught from. Not conversation activity: updatedAt
+ *  stays put. */
+function setTeachingSourceId(id: string, attachmentId: string | undefined): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (attachmentId === undefined) delete record.teachingSourceId;
+	else record.teachingSourceId = attachmentId;
+	writeChat(record);
+}
+
 /** Detach (soft-remove) or restore one attachment record; idempotent —
  *  detaching twice keeps the first time. Null (no write) when the id isn't
  *  on the chat. Not conversation activity: updatedAt stays put. */
@@ -291,6 +302,7 @@ export const chatStore: ChatStore = {
 	deleteChat,
 	addAttachments,
 	setAttachmentDetached,
+	setTeachingSourceId,
 	referencedAttachmentFiles,
 	appendTurnUsage,
 	appendExtractionUsage,

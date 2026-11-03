@@ -194,7 +194,7 @@ export function estimateTokens(messages: readonly (LhMessage | AgentMessage)[]):
  * markers have no context, just like native metadata entries. */
 function cutMessage(message: LhMessage): LhMessage | null {
 	if (message.role !== "custom") return message;
-	if (["compaction", "plan-block", "problem-dismissed"].includes(message.customType)) return null;
+	if (["compaction", "plan-block", "problem-dismissed", "source-attached"].includes(message.customType)) return null;
 	return message;
 }
 

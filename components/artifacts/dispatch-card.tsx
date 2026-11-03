@@ -24,6 +24,7 @@ const KIND_LABEL: Record<JobKind, string> = {
 	demo: "Demo agent",
 	visual: "Figure agent",
 	pdf: "PDF reader",
+	digest: "Source digest",
 };
 
 export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {

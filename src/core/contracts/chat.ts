@@ -60,6 +60,11 @@ export interface ChatRecord {
 	 *  them on demand — contents never ride the record. Records are never
 	 *  deleted: removal sets `detachedAt`, Undo clears it. */
 	attachments?: AttachmentRecord[];
+	/** The attachment the session is taught FROM (learn-from-a-file on
+	 *  attachments, owner 2026-11-03): set once at session start by
+	 *  POST /api/chats/[id]/source, never cleared — the source can't be
+	 *  detached. Absent = every attachment is context. */
+	teachingSourceId?: string;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build
@@ -107,6 +112,9 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, { kind: AttachmentKind; m
 	".txt": { kind: "text", mimeType: "text/plain" },
 	".md": { kind: "text", mimeType: "text/markdown" },
 };
+
+/** The kinds a teaching source can be (owner, 2026-11-03): what the digest reads. */
+export const TEACHING_SOURCE_KINDS: readonly AttachmentKind[] = ["pdf", "text"];
 
 /** Per-file upload ceiling. */
 export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;

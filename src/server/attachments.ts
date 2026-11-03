@@ -124,8 +124,12 @@ export async function addChatAttachment(chatId: string, upload: UploadedFile): P
 }
 
 /** The session's ACTIVE attachments as the agent layer sees them; the one place blob paths are resolved. */
-export function sessionAttachments(record: Pick<ChatRecord, "attachments">): SessionAttachment[] {
+export function sessionAttachments(record: Pick<ChatRecord, "attachments" | "teachingSourceId">): SessionAttachment[] {
 	return (record.attachments ?? [])
 		.filter((r) => !r.detachedAt)
-		.map((r) => ({ record: r, path: path.join(attachmentsRoot(), r.file) }));
+		.map((r) => ({
+			record: r,
+			path: path.join(attachmentsRoot(), r.file),
+			...(r.id === record.teachingSourceId ? { teachingSource: true as const } : {}),
+		}));
 }

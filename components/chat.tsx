@@ -53,13 +53,14 @@ import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
-import type { PlanBlockData } from "@/src/core";
+import type { PlanBlockData, SourceAttachedDetails } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
+import { SourceCard } from "@/components/source-card";
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, AttachmentRecord, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import { AttachmentChips, ContextAttachControl, mergeAttachments, SessionFilesControl, useAttachmentDraft } from "@/components/attachments";
@@ -1495,6 +1496,8 @@ export function Chat({
 										switch (part.type) {
 											case "data-graph-context":
 												return <GraphContextCard key={pi} data={part.data as GraphContextData} />;
+											case "data-source":
+												return <SourceCard key={pi} chatId={chatId} data={part.data as SourceAttachedDetails} />;
 											case "data-compaction":
 												return <CompactionMomentDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-compaction-cut":
