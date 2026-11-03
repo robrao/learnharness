@@ -259,6 +259,10 @@ export interface PdfResult {
 	pagesConsulted: number[];
 }
 
+/** What a teaching source (or a text attachment) is read as: pages for a
+ *  PDF, lines for a .txt/.md file (learn-from-a-file, 2026-10-28). */
+export type SourceKind = "pdf" | "text";
+
 // ─── Sub-agent steer messages (THE ASYNC PROTOCOL §3–4) ─────────────────────
 //
 // Wave B (owner-approved 2026-09-26): steers are NATIVE record messages —

@@ -7,6 +7,7 @@ import type { AttachmentRecord } from "../../core/contracts.ts";
 import { serverExecute } from "../tool-execute.ts";
 import { epubChapterMarkdown, epubInfo, epubSearch } from "../subagents/epub-ops.ts";
 import { pdfExtract, pdfInfo, pdfSearch } from "../subagents/pdf-ops.ts";
+import { sourceExtractText, sourceInfoText, sourceSearchText } from "../subagents/source-ops.ts";
 import { processImage } from "../image-processing/index.ts";
 import { capOutput, formatSize } from "./fs-shared.ts";
 import { readTextSlice, type ReadModel } from "./read.ts";
@@ -44,6 +45,7 @@ function describe(a: AttachmentRecord): string {
 	const size = formatSize(a.bytes);
 	if (a.kind === "pdf") return `PDF, ${a.pages ?? "?"} pages, ${size} → pdf_info / pdf_search / pdf_extract; the \`pdf\` job for figures and equations`;
 	if (a.kind === "epub") return `EPUB${a.title ? ` "${a.title}"` : ""}, ${a.chapters ?? "?"} chapters, ${size} → epub_info / epub_search / epub_read`;
+	if (a.kind === "text") return `text file, ${a.lines ?? "?"} lines, ${size} → text_info / text_search / text_extract`;
 	return `image, ${size} → \`read\` this path to look at it (also shown on the message it was sent with, when there is one)`;
 }
 
@@ -233,6 +235,60 @@ export function attachmentTools(attachments: readonly SessionAttachment[]): Reco
 					return capOutput(lines).content;
 				} catch (err) {
 					return failure("epub_search", err);
+				}
+			}),
+		};
+	}
+
+	if (attachments.some((a) => a.record.kind === "text")) {
+		const infoInput = Type.Object({ path: pathParam });
+		const extractInput = Type.Object({
+			path: pathParam,
+			lines: Type.String({ description: "Lines to extract: '1-120', '1,40,90', or '3'. Use text_info / text_search first and keep the range narrow." }),
+		});
+		const searchInput = Type.Object({ path: pathParam, query: Type.String({ description: "Text to find (case-insensitive substring)" }) });
+		tools.text_info = {
+			name: "text_info",
+			label: "text_info",
+			description: "Triage an attached text file (.txt/.md): line count plus its markdown headings with line numbers.",
+			parameters: infoInput,
+			execute: serverExecute("text_info", infoInput, async ({ path: p }) => {
+				const file = scoped(p);
+				if (!file) return outside("text_info");
+				try {
+					return await sourceInfoText("text", file);
+				} catch (err) {
+					return failure("text_info", err);
+				}
+			}),
+		};
+		tools.text_extract = {
+			name: "text_extract",
+			label: "text_extract",
+			description: "Extract specific lines of an attached text file. Output is capped — request fewer lines if it truncates.",
+			parameters: extractInput,
+			execute: serverExecute("text_extract", extractInput, async ({ path: p, lines }) => {
+				const file = scoped(p);
+				if (!file) return outside("text_extract");
+				try {
+					return (await sourceExtractText("text", file, lines)).text;
+				} catch (err) {
+					return failure("text_extract", err);
+				}
+			}),
+		};
+		tools.text_search = {
+			name: "text_search",
+			label: "text_search",
+			description: "Find text in an attached text file — returns the matching line numbers with context.",
+			parameters: searchInput,
+			execute: serverExecute("text_search", searchInput, async ({ path: p, query }) => {
+				const file = scoped(p);
+				if (!file) return outside("text_search");
+				try {
+					return (await sourceSearchText("text", file, query)).body;
+				} catch (err) {
+					return failure("text_search", err);
 				}
 			}),
 		};

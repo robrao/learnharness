@@ -24,6 +24,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 	}
 	const upload = form.get("file");
 	if (!(upload instanceof File)) return Response.json({ error: 'Attach one file in the "file" field.' }, { status: 400 });
-	const result = await addChatAttachment(id, { name: upload.name, bytes: new Uint8Array(await upload.arrayBuffer()) });
+	const bytes = new Uint8Array(await upload.arrayBuffer());
+	// The proxy buffer truncates past its limit instead of failing — never
+	// trust a body whose bytes disagree with the declared size.
+	if (bytes.byteLength !== upload.size) return Response.json({ error: "The upload was cut off — please retry." }, { status: 400 });
+	const result = await addChatAttachment(id, { name: upload.name, bytes });
 	return result.ok ? Response.json({ attachment: result.attachment }) : Response.json({ error: result.error }, { status: 422 });
 }

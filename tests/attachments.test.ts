@@ -425,6 +425,63 @@ describe("session attachments (upload route → turn)", () => {
 		assert.equal(chatStore.getChat(chatId)!.attachments![0]!.detachedAt, undefined);
 	});
 
+	it("reads an attached .md file by headings, line range and search, scoped to the session", async () => {
+		const chatId = newChat();
+		const notes = await attach(chatId, "limits.md", Buffer.from("# Limits\nintro\n## Epsilon-delta\nfor every epsilon\nthere is a delta\n"));
+		assert.equal(notes.record.kind, "text");
+		assert.equal(notes.record.lines, 6);
+		const plain = await attach(chatId, "plain.txt", Buffer.from("just text"));
+		assert.equal(plain.record.kind, "text");
+
+		const { engine, seen } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("text_info", { path: notes.path })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("text_search", { path: notes.path, query: "DELTA" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("text_extract", { path: notes.path, lines: "3-4" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("text_extract", { path: "/etc/passwd", lines: "1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("Done.")]),
+		]);
+		await send(chatId, engine, "walk me through my limits notes");
+
+		assert.match(seen[0]!.systemPrompt, /limits\.md — text file, 6 lines, .* → text_info \/ text_search \/ text_extract/);
+		assert.ok(["text_info", "text_extract", "text_search"].every((t) => seen[0]!.tools.includes(t)));
+		assert.ok(!seen[0]!.tools.some((t) => t.startsWith("pdf_")), "no PDF attached, no PDF tools");
+		assert.match(lastToolResult(seen[1]!), /Lines: 6/);
+		assert.match(lastToolResult(seen[1]!), /L3: ## Epsilon-delta/);
+		assert.match(lastToolResult(seen[2]!), /=== Line 3 ===/);
+		assert.match(lastToolResult(seen[2]!), /=== Line 5 ===/);
+		assert.equal(lastToolResult(seen[3]!), "L3: ## Epsilon-delta\nL4: for every epsilon");
+		assert.match(lastToolResult(seen[4]!), /must be one of this session's attachments/);
+	});
+
+	it("refuses files whose bytes don't match their type, and cut-off uploads", async () => {
+		const chatId = newChat();
+		const before = blobs();
+		const fakePdf = await upload(chatId, "fake.pdf", Buffer.from("not a pdf at all"));
+		assert.equal(fakePdf.ok, false);
+		assert.match(fakePdf.error!, /doesn't look like a PDF/);
+		const binary = await upload(chatId, "binary.txt", Buffer.from([104, 105, 0, 1, 2]));
+		assert.equal(binary.ok, false);
+		assert.match(binary.error!, /doesn't look like a text file/);
+		const garbled = await upload(chatId, "garbled.md", Buffer.from(Array.from({ length: 200 }, (_, i) => (i % 2 ? 0xff : 0x61))));
+		assert.equal(garbled.ok, false);
+		assert.match(garbled.error!, /doesn't look like a text file/);
+		assert.deepEqual(blobs(), before, "nothing stored for a refused file");
+
+		// The proxy truncates past its buffer limit instead of failing: a file
+		// whose bytes fall short of its declared size is refused, not stored.
+		class CutOff extends File {
+			override get size() {
+				return super.size + 10;
+			}
+		}
+		const cut = new CutOff(["# partial"], "cut.md");
+		const req = { headers: new Headers(), formData: async () => ({ get: () => cut }) } as unknown as Request;
+		const res = await attachmentsRoute.POST(req, { params: Promise.resolve({ id: chatId }) });
+		assert.equal(res.status, 400);
+		assert.match(((await res.json()) as { error: string }).error, /cut off/);
+		assert.equal(chatStore.getChat(chatId)!.attachments, undefined);
+	});
+
 	it("answers bad attachment requests with the right status", async () => {
 		const chatId = newChat();
 		const image = await attach(chatId, "diagram.png", PNG);
@@ -432,14 +489,14 @@ describe("session attachments (upload route → turn)", () => {
 			attachmentsRoute.POST(new Request(`http://local/api/chats/${id}/attachments`, { method: "POST", body: form }), {
 				params: Promise.resolve({ id }),
 			});
-		const textFile = new FormData();
-		textFile.append("file", new File(["hello"], "notes.txt"));
+		const docFile = new FormData();
+		docFile.append("file", new File(["hello"], "notes.docx"));
 		const cases: Array<{ name: string; res: () => Promise<Response>; status: number; error?: RegExp }> = [
 			{ name: "unknown attachment", res: () => patchRequest(chatId, "att_nope", { detached: true }), status: 404 },
 			{ name: "non-boolean detached", res: () => patchRequest(chatId, image.record.id, { detached: "yes" }), status: 400 },
 			{ name: "unknown chat", res: () => patchRequest("chat_nope", image.record.id, { detached: true }), status: 404 },
 			{ name: "no file field", res: () => post(chatId, new FormData()), status: 400 },
-			{ name: "unsupported type", res: () => post(chatId, textFile), status: 422, error: /Unsupported file type/ },
+			{ name: "unsupported type", res: () => post(chatId, docFile), status: 422, error: /Unsupported file type/ },
 		];
 		for (const c of cases) {
 			const res = await c.res();

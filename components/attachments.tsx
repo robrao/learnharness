@@ -38,7 +38,7 @@ export async function uploadAttachment(chatId: string, file: File, fetchLike: ty
 
 /** Client-side precheck — the server validates again. */
 export function precheck(file: File): string | null {
-	if (!ATTACHMENT_TYPES[attachmentExtension(file.name)]) return `${file.name}: unsupported type. Attach images, PDFs, or EPUBs.`;
+	if (!ATTACHMENT_TYPES[attachmentExtension(file.name)]) return `${file.name}: unsupported type. Attach images, PDFs, EPUBs, or text files.`;
 	if (file.size > ATTACHMENT_MAX_BYTES) return `${file.name}: larger than 50 MB.`;
 	return null;
 }
@@ -65,6 +65,7 @@ export function attachmentFacts(a: AttachmentRecord): string {
 	const size = formatFileSize(a.bytes);
 	if (a.kind === "pdf") return `PDF · ${a.pages ?? "?"} pages · ${size}`;
 	if (a.kind === "epub") return `EPUB · ${a.chapters ?? "?"} chapters · ${size}`;
+	if (a.kind === "text") return `Text · ${a.lines ?? "?"} lines · ${size}`;
 	return `Image · ${size}`;
 }
 

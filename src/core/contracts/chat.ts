@@ -68,7 +68,7 @@ export interface ChatRecord {
 	version?: number;
 }
 
-export type AttachmentKind = "image" | "pdf" | "epub";
+export type AttachmentKind = "image" | "pdf" | "epub" | "text";
 
 /** One attached file. `file` is the content-addressed blob name
  *  (`<sha256><ext>` under data/attachments/ — relative, so LH_DATA_DIR can
@@ -88,6 +88,8 @@ export interface AttachmentRecord {
 	chapters?: number;
 	/** EPUB title metadata. */
 	title?: string;
+	/** Text file (.txt/.md) line count. */
+	lines?: number;
 	/** Set when the learner removed the file from the session's context (ISO time); absent = active. The record and its blob stay so Undo needs no re-upload. */
 	detachedAt?: string;
 }
@@ -102,6 +104,8 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, { kind: AttachmentKind; m
 	".webp": { kind: "image", mimeType: "image/webp" },
 	".pdf": { kind: "pdf", mimeType: "application/pdf" },
 	".epub": { kind: "epub", mimeType: "application/epub+zip" },
+	".txt": { kind: "text", mimeType: "text/plain" },
+	".md": { kind: "text", mimeType: "text/markdown" },
 };
 
 /** Per-file upload ceiling. */

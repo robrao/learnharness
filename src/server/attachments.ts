@@ -10,6 +10,7 @@ import {
 import { epubInfo } from "../agent/subagents/epub-ops.ts";
 import { pdfInfo } from "../agent/subagents/pdf-ops.ts";
 import type { SessionAttachment } from "../agent/tools/attachments.ts";
+import type { SourceKind } from "../core/contracts.ts";
 import { attachmentsRoot, blobPath, pinBlob, removeBlobsUnreferenced, unpinBlob, writeBlob } from "../store/attachments.ts";
 import { stores } from "./stores.ts";
 
@@ -35,7 +36,35 @@ function formatMb(bytes: number): string {
 	return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
-async function inspect(path: string, kind: AttachmentRecord["kind"]): Promise<Partial<AttachmentRecord>> {
+const SNIFF_BYTES = 8192;
+const MAX_REPLACEMENT_RATIO = 0.01;
+
+/** null when the bytes plausibly match the kind, else the learner-facing
+ *  reason (learn-from-a-file, owner 2026-10-28): a PDF must carry the %PDF-
+ *  header; text must have no NUL in its first 8 KB and ≤1% undecodable
+ *  characters there. */
+export function sniffSource(kind: SourceKind, bytes: Uint8Array): string | null {
+	const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	if (kind === "pdf") {
+		return buf.subarray(0, 5).toString("latin1") === "%PDF-" ? null : "That file doesn't look like a PDF.";
+	}
+	const head = buf.subarray(0, SNIFF_BYTES);
+	if (head.includes(0)) return "That file doesn't look like a text file.";
+	// A multibyte character split at the 8 KB boundary decodes to one
+	// trailing U+FFFD — not evidence of binary content.
+	let decoded = new TextDecoder("utf-8").decode(head);
+	if (buf.length > SNIFF_BYTES && decoded.endsWith("\uFFFD")) decoded = decoded.slice(0, -1);
+	let bad = 0;
+	for (const ch of decoded) if (ch === "\uFFFD") bad++;
+	return decoded.length > 0 && bad / decoded.length > MAX_REPLACEMENT_RATIO ? "That file doesn't look like a text file." : null;
+}
+
+async function inspect(path: string, kind: AttachmentRecord["kind"], bytes: Uint8Array): Promise<Partial<AttachmentRecord>> {
+	if (kind === "pdf" || kind === "text") {
+		const refused = sniffSource(kind, bytes);
+		if (refused) throw new Error(refused);
+	}
+	if (kind === "text") return { lines: new TextDecoder("utf-8").decode(bytes).split(/\r?\n/).length };
 	if (kind === "pdf") {
 		const info = await pdfInfo(path).catch(() => {
 			throw new Error("This PDF can't be opened (damaged or password-protected).");
@@ -55,7 +84,7 @@ export async function addChatAttachment(chatId: string, upload: UploadedFile): P
 	const { name, bytes } = upload;
 	const ext = attachmentExtension(name);
 	const type = ATTACHMENT_TYPES[ext];
-	if (!type) return { ok: false, error: "Unsupported file type. Attach images (PNG, JPG, GIF, WebP), PDFs, or EPUBs." };
+	if (!type) return { ok: false, error: "Unsupported file type. Attach images (PNG, JPG, GIF, WebP), PDFs, EPUBs, or text files (.txt, .md)." };
 	if (bytes.byteLength > ATTACHMENT_MAX_BYTES) return { ok: false, error: `File is larger than ${formatMb(ATTACHMENT_MAX_BYTES)}.` };
 	const file = writeBlob(bytes, ext);
 	// Already on this chat (same bytes, same type): hand back that record
@@ -70,7 +99,7 @@ export async function addChatAttachment(chatId: string, upload: UploadedFile): P
 	try {
 		let facts: Partial<AttachmentRecord>;
 		try {
-			facts = await inspect(blobPath(file), type.kind);
+			facts = await inspect(blobPath(file), type.kind, bytes);
 		} catch (err) {
 			return { ok: false, error: err instanceof Error ? err.message : String(err) };
 		}

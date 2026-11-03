@@ -266,3 +266,45 @@ export function renderDir(filePath: string): string {
 	}
 	return path.join("/tmp", `lh-pdf-${h.toString(16).padStart(8, "0")}`);
 }
+
+/** Per-page text cache for the session-source tools (learn-from-a-file):
+ *  the prober's / teacher's source_* calls would otherwise re-open and
+ *  re-parse the whole PDF every call, mid-turn. Keyed by path, invalidated
+ *  on mtime change; a tiny LRU (Map insertion order). */
+const PAGE_TEXT_CACHE_MAX = 4;
+const pageTextCache = new Map<string, { mtimeMs: number; pages: string[] }>();
+/** Test seam: document opens done by pdfPageTexts (cache misses). */
+export const pdfCacheStats = { opens: 0 };
+
+/** Every page's text, 1-indexed by position (pages[0] = page 1). Cached. */
+export async function pdfPageTexts(filePath: string): Promise<string[]> {
+	const { mtimeMs } = await fs.stat(filePath);
+	const hit = pageTextCache.get(filePath);
+	if (hit && hit.mtimeMs === mtimeMs) {
+		pageTextCache.delete(filePath);
+		pageTextCache.set(filePath, hit);
+		return hit.pages;
+	}
+	pdfCacheStats.opens++;
+	const { doc, task } = await openDocument(filePath);
+	try {
+		const pages: string[] = [];
+		for (let i = 1; i <= doc.numPages; i++) {
+			const page = await doc.getPage(i);
+			const content = await page.getTextContent();
+			pages.push(itemsToText(content.items as unknown[]));
+		}
+		pageTextCache.delete(filePath);
+		pageTextCache.set(filePath, { mtimeMs, pages });
+		while (pageTextCache.size > PAGE_TEXT_CACHE_MAX) pageTextCache.delete(pageTextCache.keys().next().value!);
+		return pages;
+	} finally {
+		await task.destroy();
+	}
+}
+
+/** Drop a path's cached page texts (or all of them). */
+export function evictPdfCache(filePath?: string): void {
+	if (filePath === undefined) pageTextCache.clear();
+	else pageTextCache.delete(filePath);
+}
