@@ -226,6 +226,7 @@ export function Chat({
 	initialConfigured = false,
 	kind = "teach",
 	initialAttachments = [],
+	initialTeachingSourceId,
 }: {
 	chatId: string;
 	title: string;
@@ -252,6 +253,9 @@ export function Chat({
 	/** The session's context attachments (2026-10-29) — names for the
 	 *  transcript's chips; grows as the composer uploads more. */
 	initialAttachments?: AttachmentRecord[];
+	/** The attachment the session is taught from (owner, 2026-11-03) —
+	 *  set once at session start, so the mount value is the truth. */
+	initialTeachingSourceId?: string;
 }) {
 	// Session context attachments: the record's list + the composer's draft.
 	const [sessionAttachments, setSessionAttachments] = useState(initialAttachments);
@@ -1407,6 +1411,7 @@ export function Chat({
 						open={filesOpen}
 						onOpenChange={onFilesOpenChange}
 						highlightId={filesHighlight}
+						teachingSourceId={initialTeachingSourceId}
 					/>
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup

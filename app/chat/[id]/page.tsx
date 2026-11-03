@@ -37,6 +37,7 @@ export default async function ChatPage({
 			initiallyInFlight={isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
 			initialAttachments={chat.attachments ?? []}
+			initialTeachingSourceId={chat.teachingSourceId}
 		/>
 	);
 }

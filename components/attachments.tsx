@@ -343,10 +343,14 @@ export function SessionFilesControl({
 	open,
 	onOpenChange,
 	highlightId,
+	teachingSourceId,
 	fetchLike = fetch,
 }: {
 	chatId: string;
 	attachments: readonly AttachmentRecord[];
+	/** The session's teaching source (owner, 2026-11-03): badged, and it
+	 *  has no Remove — it can't leave the session. */
+	teachingSourceId?: string;
 	setAttachments: Dispatch<SetStateAction<AttachmentRecord[]>>;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -486,15 +490,24 @@ export function SessionFilesControl({
 											<FileName name={a.name} />
 											<div className="text-muted-foreground">{attachmentFacts(a)}</div>
 										</div>
-										<button
-											type="button"
-											aria-label={`Remove ${a.name}`}
-											disabled={pendingId === a.id}
-											onClick={() => void setDetached(a, true)}
-											className={REMOVE_BUTTON}
-										>
-											<XIcon aria-hidden="true" className="size-3.5" />
-										</button>
+										{a.id === teachingSourceId ? (
+											<span
+												data-testid="teaching-source-badge"
+												className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+											>
+												Teaching source
+											</span>
+										) : (
+											<button
+												type="button"
+												aria-label={`Remove ${a.name}`}
+												disabled={pendingId === a.id}
+												onClick={() => void setDetached(a, true)}
+												className={REMOVE_BUTTON}
+											>
+												<XIcon aria-hidden="true" className="size-3.5" />
+											</button>
+										)}
 									</li>
 								))}
 							</ul>

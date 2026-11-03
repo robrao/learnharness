@@ -62,3 +62,33 @@ describe("session files panel", () => {
 		assert.doesNotMatch(html, /aria-label="Remove /);
 	});
 });
+
+describe("session files panel: the teaching source (owner, 2026-11-03)", () => {
+	it("badges the source and gives it no Remove; context files keep theirs", () => {
+		const notes: AttachmentRecord = {
+			id: "att_notes",
+			name: "calculus.md",
+			kind: "text",
+			mimeType: "text/markdown",
+			bytes: 4096,
+			file: "c".repeat(64) + ".md",
+			addedAt: "2026-11-03T10:00:00.000Z",
+			lines: 120,
+		};
+		const html = renderToStaticMarkup(
+			<SessionFilesControl
+				chatId="c1"
+				attachments={[notes, book]}
+				setAttachments={() => {}}
+				open
+				onOpenChange={() => {}}
+				highlightId={null}
+				teachingSourceId="att_notes"
+			/>,
+		);
+		assert.equal((html.match(/data-testid="teaching-source-badge"/g) ?? []).length, 1);
+		assert.match(html, /calculus\.md[\s\S]*Text · 120 lines · 4 KB[\s\S]*Teaching source/);
+		assert.doesNotMatch(html, /aria-label="Remove calculus\.md"/);
+		assert.match(html, /aria-label="Remove mechanics\.epub"/);
+	});
+});
