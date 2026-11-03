@@ -2,7 +2,9 @@
  * to end through the real app: pick files in the new-session composer, see
  * the chips, send, land on the chat page with the files stored in the
  * session and their ids on the opening message; then a second session
- * attaching the same book shares its stored copy. No model/provider calls:
+ * attaching the same book shares its stored copy; a third starts from a
+ * ticked teaching source (no opening message — the server starts it) and
+ * takes a context PDF mid-session. No model/provider calls:
  * /api/chat is intercepted, the catalog is a fixture, app HOME/data/auth
  * are throwaway. Uploads hit the REAL route (proxy.ts included).
  * Run: LH_TEST_CHROME=/usr/bin/google-chrome node scripts/smoke-attachments.mjs
@@ -41,6 +43,8 @@ fs.writeFileSync(epubPath, zipSync({
 	"content.opf": strToU8(`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>Smoke Book</dc:title></metadata><manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>`),
 	"c1.xhtml": strToU8(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1><p>Hello.</p></body></html>`),
 }));
+const notesPath = path.join(files, "limits.md");
+fs.writeFileSync(notesPath, "# Limits\nA limit is the value a function approaches.\n");
 const pngPath = path.join(files, "figure.png");
 fs.writeFileSync(pngPath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
 
@@ -196,6 +200,46 @@ try {
 	assert.equal(second.attachments[0].file, record.attachments[0].file, "the same book points at the same stored file");
 	assert.equal(fs.readdirSync(path.join(dataDir, "attachments")).length, 3, "4 attachments across 2 sessions, 3 files stored");
 	console.log("✓ second session: the same book attached again is stored once, shared by both sessions");
+
+	// Third: a ticked teaching source. The .md chip offers the checkbox, the
+	// PNG doesn't; empty text can send; no opening message is posted.
+	await page.goto(origin + "/chat/new", { waitUntil: "domcontentloaded", timeout: 120000 });
+	await page.waitForSelector('[data-testid="attach-context"]');
+	await (await page.$('[data-testid="attachment-input"]')).uploadFile(notesPath, pngPath);
+	await page.waitForFunction(() => document.querySelectorAll('[data-testid="attachment-chip"]').length === 2);
+	assert.equal((await page.$$('[data-testid="teaching-source-checkbox"]')).length, 1, "only the .md can be the source");
+	await page.locator('[data-testid="teaching-source-checkbox"]').click();
+	await page.waitForFunction(() => {
+		const button = document.querySelector('[data-testid="composer"] button[aria-label="Send"]');
+		return button && !button.disabled;
+	});
+	const postsBeforeSource = posts.length;
+	await page.locator('[data-testid="composer"] button[aria-label="Send"]').click();
+	await page.waitForFunction(() => /^\/chat\/chat_/.test(location.pathname));
+	const sourceId = new URL(page.url()).pathname.split("/").at(-1);
+	await page.waitForSelector('[data-testid="source-card"]');
+	assert.equal(posts.length, postsBeforeSource, "the server starts a source session: no opening message");
+	const readSource = () => JSON.parse(fs.readFileSync(path.join(dataDir, "chats", `${sourceId}.json`), "utf-8"));
+	const sourceRecord = readSource();
+	assert.equal(sourceRecord.title, "limits.md", "a blank goal titles the session after the file");
+	assert.deepEqual(sourceRecord.attachments.map(a => [a.name, a.kind]), [["limits.md", "text"], ["figure.png", "image"]]);
+	assert.equal(sourceRecord.teachingSourceId, sourceRecord.attachments[0].id);
+	assert.equal(sourceRecord.messages[0].customType, "source-attached");
+	console.log("✓ teaching source: tick the .md → send with no text → source card, no opening message, the source named on the record");
+
+	await page.locator('[data-testid="session-files-chip"]').click();
+	await page.waitForSelector('[data-testid="session-files-panel"] [data-testid="teaching-source-badge"]');
+	assert.equal(await page.$('button[aria-label="Remove limits.md"]'), null, "the source has no Remove");
+	assert.ok(await page.$('button[aria-label="Remove figure.png"]'), "context files keep theirs");
+	await (await page.$('[data-testid="session-files-input"]')).uploadFile(path.join(root, "tests/fixtures/sample-3page.pdf"));
+	const deadline = Date.now() + 15000;
+	while (readSource().attachments.length !== 3) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for the context PDF");
+		await new Promise(resolve => setTimeout(resolve, 100));
+	}
+	assert.equal(readSource().teachingSourceId, sourceRecord.teachingSourceId, "a later upload is context");
+	assert.deepEqual(errors, []);
+	console.log("✓ teaching source: badged with no Remove in the files panel; a PDF added mid-session is context");
 } catch (err) {
 	console.error(logs.slice(-4000));
 	throw err;
