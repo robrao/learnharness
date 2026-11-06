@@ -206,15 +206,6 @@ export function sourceSearchRoots(p?: string, policy: ResolvedFileAccessPolicy =
 	return { roots, notices, multiRoot: true };
 }
 
-/** Resolve a tool-supplied path and require it to live INSIDE `dir` —
- *  the scoped tools' filesystem ends at that wall (null = outside). */
-export function scopedPath(dir: string, filePath: string): string | null {
-	const root = path.resolve(dir) + path.sep;
-	const resolved = path.resolve(dir, filePath);
-	if (!resolved.startsWith(root)) return null;
-	return resolved;
-}
-
 /** pi's formatSize idiom (50KB prints as "50.0KB"). */
 export function formatSize(bytes: number): string {
 	return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${bytes}B`;

@@ -34,7 +34,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ImageContent, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS, type PendingQuestion } from "./pending.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import {
@@ -591,7 +591,7 @@ export function toLlmMessages(
 		/** Content parts appended to a user message that carries attachment
 		 *  ids (the agent layer reads image bytes from disk). Runs only for
 		 *  messages that survive the compaction cut. Absent = ids just strip. */
-		attachmentParts?: (ids: readonly string[]) => ImageContent[];
+		attachmentParts?: (ids: readonly string[]) => Array<TextContent | ImageContent>;
 	} = {},
 ): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker

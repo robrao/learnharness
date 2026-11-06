@@ -211,7 +211,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
 	const systemPrompt = systemPromptFor(kind, { ...opts, narrationGuard });
 	const sessionTools = opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : [];
-	const showImages = engine.model.input?.includes("image") ?? false;
+	const attachedImages = engine.model.input?.includes("image")
+		? attachmentImageParts(opts.attachments ?? [], engine.model)
+		: null;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -265,9 +267,10 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
 		// Attached images ride the message they were sent with — vision
-		// models only; for the rest the ids just strip (the manifest names it).
-		convertToLlm: (messages) =>
-			toLlmMessages(messages, showImages ? { attachmentParts: attachmentImageParts(opts.attachments ?? []) } : {}),
+		// models only, processed for the model like every other image; for
+		// the rest the ids just strip (the manifest names it).
+		convertToLlm: async (messages) =>
+			toLlmMessages(messages, attachedImages ? { attachmentParts: await attachedImages(messages) } : {}),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;
