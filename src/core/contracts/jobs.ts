@@ -267,6 +267,10 @@ export interface PdfToolInput {
 	question: string;
 }
 
+/** What a teaching source (or a text attachment) is read as: pages for a
+ *  PDF, lines for a .txt/.md file (learn-from-a-file, 2026-10-28). */
+export type SourceKind = "pdf" | "text";
+
 export interface PdfResult {
 	path: string;
 	question: string;

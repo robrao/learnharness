@@ -47,6 +47,11 @@ export interface ChatRecord {
 	 * shares one thread. Every main request appends new raw exchanges across
 	 * all threads; already-recorded teacher history is never rewritten. */
 	sideChats?: SideChatThread[];
+	/** Files the learner uploaded when the session started, stored under
+	 *  data/attachments/<chatId>/. The agent sees them through the system
+	 *  prompt's attachments section and reads them on demand; contents never
+	 *  ride the record. Added only at start and never removed. */
+	attachments?: AttachmentRecord[];
 	/** Schema version. Absence denotes version 1; writes stamp the current
 	 * supported version. Reads refuse records stamped newer than this build
 	 * so a downgraded app cannot rewrite an unsupported record. */
@@ -55,6 +60,48 @@ export interface ChatRecord {
 
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 2;
+
+export type AttachmentKind = "pdf" | "epub" | "text";
+
+/** One file uploaded at session start. `file` is the stored name inside the
+ *  session's folder (`<id><ext>` under data/attachments/<chatId>/ — relative,
+ *  so LH_DATA_DIR can move); `name` is what the learner picked and never
+ *  becomes a path. Structure facts are captured once, at upload. */
+export interface AttachmentRecord {
+	id: string;
+	name: string;
+	kind: AttachmentKind;
+	mimeType: string;
+	bytes: number;
+	file: string;
+	addedAt: string;
+	/** PDF page count. */
+	pages?: number;
+	/** EPUB chapter count (spine items). */
+	chapters?: number;
+	/** EPUB title metadata. */
+	title?: string;
+	/** Text file (.txt/.md) line count. */
+	lines?: number;
+}
+
+/** Accepted attachment types by extension — single-sourced for the
+ *  start composers' file picker and the upload route's validation. */
+export const ATTACHMENT_TYPES: Readonly<Record<string, { kind: AttachmentKind; mimeType: string }>> = {
+	".pdf": { kind: "pdf", mimeType: "application/pdf" },
+	".epub": { kind: "epub", mimeType: "application/epub+zip" },
+	".txt": { kind: "text", mimeType: "text/plain" },
+	".md": { kind: "text", mimeType: "text/markdown" },
+};
+
+/** Per-file upload ceiling. */
+export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
+
+/** The lowercased extension of a file name ("" when none). */
+export function attachmentExtension(name: string): string {
+	const dot = name.lastIndexOf(".");
+	return dot > 0 ? name.slice(dot).toLowerCase() : "";
+}
 
 /** Per-session model and thinking choices for native conversation agents.
  * Each absent field falls back independently to the strong model slot; no

@@ -4,6 +4,8 @@
 
 [API index](README.md) · [Data access and host boundaries](../plugin-authoring.md#backend-and-data)
 
+- [AttachmentKind](#attachmentkind) — supporting declaration
+- [AttachmentRecord](#attachmentrecord) — supporting declaration
 - [CallUsage](#callusage) — supporting declaration
 - [ChatKind](#chatkind) — supporting declaration
 - [ChatListItem](#chatlistitem)
@@ -17,6 +19,129 @@
 - [SideChatMessage](#sidechatmessage) — supporting declaration
 - [SideChatThread](#sidechatthread) — supporting declaration
 - [TurnUsage](#turnusage) — supporting declaration
+
+## AttachmentKind
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+```ts
+export type AttachmentKind = "pdf" | "epub" | "text";
+```
+
+## AttachmentRecord
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One file uploaded at session start. `file` is the stored name inside the
+session's folder (`<id><ext>` under data/attachments/<chatId>/ — relative,
+so LH_DATA_DIR can move); `name` is what the learner picked and never
+becomes a path. Structure facts are captured once, at upload.
+
+```ts
+export interface AttachmentRecord {
+    id: string;
+    name: string;
+    kind: AttachmentKind;
+    mimeType: string;
+    bytes: number;
+    file: string;
+    addedAt: string;
+    pages?: number;
+    chapters?: number;
+    title?: string;
+    lines?: number;
+}
+```
+
+**Related types:** [AttachmentKind](contracts-chat.md#attachmentkind).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#attachmentrecord-id)
+- [name](#attachmentrecord-name)
+- [kind](#attachmentrecord-kind)
+- [mimeType](#attachmentrecord-mimetype)
+- [bytes](#attachmentrecord-bytes)
+- [file](#attachmentrecord-file)
+- [addedAt](#attachmentrecord-addedat)
+- [pages](#attachmentrecord-pages)
+- [chapters](#attachmentrecord-chapters)
+- [title](#attachmentrecord-title)
+- [lines](#attachmentrecord-lines)
+
+### AttachmentRecord id
+
+```ts
+id: string;
+```
+
+### AttachmentRecord name
+
+```ts
+name: string;
+```
+
+### AttachmentRecord kind
+
+```ts
+kind: AttachmentKind;
+```
+
+### AttachmentRecord mimeType
+
+```ts
+mimeType: string;
+```
+
+### AttachmentRecord bytes
+
+```ts
+bytes: number;
+```
+
+### AttachmentRecord file
+
+```ts
+file: string;
+```
+
+### AttachmentRecord addedAt
+
+```ts
+addedAt: string;
+```
+
+### AttachmentRecord pages
+
+PDF page count.
+
+```ts
+pages?: number;
+```
+
+### AttachmentRecord chapters
+
+EPUB chapter count (spine items).
+
+```ts
+chapters?: number;
+```
+
+### AttachmentRecord title
+
+EPUB title metadata.
+
+```ts
+title?: string;
+```
+
+### AttachmentRecord lines
+
+Text file (.txt/.md) line count.
+
+```ts
+lines?: number;
+```
 
 ## CallUsage
 
@@ -163,11 +288,12 @@ export interface ChatRecord {
     extractions?: ExtractionRunUsage[];
     settings?: ChatSettings;
     sideChats?: SideChatThread[];
+    attachments?: AttachmentRecord[];
     version?: number;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [AttachmentRecord](contracts-chat.md#attachmentrecord), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -183,6 +309,7 @@ export interface ChatRecord {
 - [extractions](#chatrecord-extractions)
 - [settings](#chatrecord-settings)
 - [sideChats](#chatrecord-sidechats)
+- [attachments](#chatrecord-attachments)
 - [version](#chatrecord-version)
 
 ### ChatRecord id
@@ -275,6 +402,17 @@ all threads; already-recorded teacher history is never rewritten.
 
 ```ts
 sideChats?: SideChatThread[];
+```
+
+### ChatRecord attachments
+
+Files the learner uploaded when the session started, stored under
+data/attachments/<chatId>/. The agent sees them through the system
+prompt's attachments section and reads them on demand; contents never
+ride the record. Added only at start and never removed.
+
+```ts
+attachments?: AttachmentRecord[];
 ```
 
 ### ChatRecord version

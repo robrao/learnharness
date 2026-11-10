@@ -20,6 +20,7 @@ import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
+import { attachmentsPromptSection, attachmentTools, type SessionAttachment } from "./tools/attachments.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
@@ -103,6 +104,26 @@ const composedInstructions: Record<AgentKind, string> = {
 	practice: composeInstructions("practice"),
 };
 
+/** The full system prompt of one turn: the composed doctrine, the
+ *  send_to_user delivery rule when the narration guard applies, any plugin
+ *  instructions, then the session-files section. The section goes last so
+ *  the static prefix stays cacheable. */
+export function systemPromptFor(
+	kind: AgentKind,
+	opts: {
+		promptSwitches?: Record<string, boolean>;
+		narrationGuard?: boolean;
+		pluginInstructions?: readonly string[];
+		attachments?: readonly SessionAttachment[];
+	} = {},
+): string {
+	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
+	const builtin = opts.narrationGuard ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed;
+	return [builtin, ...(opts.pluginInstructions ?? []), attachmentsPromptSection(opts.attachments ?? [])]
+		.filter(Boolean)
+		.join("\n\n---\n\n");
+}
+
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
 // every model call's usage lands in the chat record's turns log
 // (ChatStore.appendTurnUsage). The narrow param keeps the seam honest.
@@ -155,6 +176,11 @@ export interface AgentBuildOptions {
 	 *  <chatId>.jsonl via providerEventObserver — the GLM-truncation /
 	 *  DeepSeek-id incident layer. Absent or env-off → no observer. */
 	chatId?: string;
+	/** The session's files, paths resolved (teaching-source spec rev 2): the
+	 *  system prompt's manifest section and the scoped pdf_* / epub_* /
+	 *  text_* readers (joined to every kind's registry unless an explicit
+	 *  `tools` registry is passed). Absent/empty = none. */
+	attachments?: readonly SessionAttachment[];
 }
 
 /**
@@ -211,10 +237,6 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
 	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
-	const composedPrompt = opts.promptSwitches
-		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
-	const builtinPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
 	// Bind native read and preserve the kind/model-aware Claude output gate
 	// before resolving additive plugins. Explicit registries remain caller-owned.
 	const builtinTools = [
@@ -224,6 +246,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
 			? [withArgumentHeal(sendToUserTool)]
 			: []),
+		...(opts.tools === undefined ? Object.values(healToolRecord(attachmentTools(opts.attachments ?? []))) : []),
 	];
 	const contributions = opts.tools === undefined && opts.chatId && opts.pluginContributions
 		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
@@ -233,9 +256,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const problemTools = kind === "practice" && practice && opts.chatId
 		? pluginProblemTools(contributions?.problemTypes ?? [], opts.chatId, practice.gate, practice.graphNodes) : [];
 	// Never replace the builtin prompt or tools, or mutate an already-running Agent.
-	const systemPrompt = contributions?.instructions.length
-		? [builtinPrompt, ...contributions.instructions].join("\n\n---\n\n")
-		: builtinPrompt;
+	const systemPrompt = systemPromptFor(kind, {
+		promptSwitches: opts.promptSwitches,
+		narrationGuard,
+		pluginInstructions: contributions?.instructions,
+		attachments: opts.attachments,
+	});
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).

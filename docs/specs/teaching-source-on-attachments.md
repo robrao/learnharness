@@ -107,7 +107,7 @@ The `learn-from-source-file` table from revision 1 (what `feat/teaching-source` 
 
 ## 2. Data model
 
-1. In `src/core/contracts/chat.ts`, add `AttachmentKind`, `AttachmentRecord`, `ATTACHMENT_TYPES`, `ATTACHMENT_MAX_BYTES` and `TEACHING_SOURCE_KINDS` as named in §0. Add `attachments?` and `teachingSourceId?` to `ChatRecord`. Both are optional, so `CURRENT_CHAT_VERSION` stays at 2 and old records read as having no files.
+1. In `src/core/contracts/chat.ts`, add `AttachmentKind`, `AttachmentRecord`, `ATTACHMENT_TYPES`, `ATTACHMENT_MAX_BYTES` and `TEACHING_SOURCE_KINDS` as named in §0. Add `attachments?` and `teachingSourceId?` to `ChatRecord`. Both are optional, so `CURRENT_CHAT_VERSION` stays at 2 and old records read as having no files. `ChatRecord` is a public plugin SDK type (`PluginLearningData.getSession` returns the raw record), so both fields join the plugin API, and `docs/plugin-api/` is regenerated with them (owner, 2026-11-10).
 2. `teachingSourceId` is set once by `setTeachingSource` (§3.3), cleared only by that function's rollback, and otherwise never cleared (T6).
 3. In `src/store/chats.ts`, the chat-list summary (`listChats`, which already strips `imageSnapshots` and `sideChats`) also strips `attachments`.
 4. `DigestToolInput.path` is the attachment's absolute path, which `sessionAttachments()` resolves. `outlinePath` is `path.join(sourceDirOf(chatId), "outline.md")`, unchanged.
@@ -120,7 +120,7 @@ The `learn-from-source-file` table from revision 1 (what `feat/teaching-source` 
 ### 3.1 Storage and deletion (S7)
 
 - `attachmentDirOf(chatId)` is `path.join(PATHS.attachments, chatId)`. `PATHS.attachments` (`config.ts`) is `data/attachments`, as in the reference.
-- `addChatAttachment` writes the bytes to `<dir>/<id><ext>` with `main`'s atomic-write helper and then calls `chatStore.addAttachments`. If recording fails, it deletes the file.
+- `addChatAttachment` writes the bytes to `<dir>/<id><ext>.tmp-<uuid>` and renames them into place, then calls `chatStore.addAttachments`. If inspection or recording fails, it deletes the file. (`main`'s `writeFileAtomicSync` takes UTF-8 text only, so it can't store a PDF or EPUB; owner, 2026-11-10.)
 - The chat-delete path calls `removeChatAttachments(chatId)` (recursive remove of the folder) next to the existing `removeSourceDir(chatId)`.
 
 ### 3.2 Upload (`POST /api/chats/[id]/attachments`)
